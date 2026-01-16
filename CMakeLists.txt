@@ -31,4 +31,11 @@ if ( NOT BLASType )
 					add_subdirectory(${PROJECT_SOURCE_DIR}/data_collect)
 					add_subdirectory(${PROJECT_SOURCE_DIR}/library_frame)
 
+					# Enable testing if requested
+					option(BUILD_TESTS "Build test suite" OFF)
+					if(BUILD_TESTS)
+					    enable_testing()
+					    add_subdirectory(${PROJECT_SOURCE_DIR}/tests)
+					endif()
+
 
