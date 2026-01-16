@@ -1,0 +1,4 @@
+/home/yx7184/ADSALA/ADSALA/data_collect/real 500M new/CMakeFiles/rebuild_cache.dir
+/home/yx7184/ADSALA/ADSALA/data_collect/real 500M new/CMakeFiles/edit_cache.dir
+/home/yx7184/ADSALA/ADSALA/data_collect/real 500M new/CMakeFiles/generate-domain.dir
+/home/yx7184/ADSALA/ADSALA/data_collect/real 500M new/CMakeFiles/main.dir

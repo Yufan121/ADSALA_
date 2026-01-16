@@ -1,0 +1,13 @@
+
+======================================================================================
+                  Resource Usage on 2023-07-25 01:04:07:
+   Job Id:             91121182.gadi-pbs
+   Project:            kx58
+   Exit Status:        0
+   Service Units:      0.08
+   NCPUs Requested:    48                     NCPUs Used: 48              
+                                           CPU Time Used: 00:00:01        
+   Memory Requested:   192.0GB               Memory Used: 48.73MB         
+   Walltime requested: 23:00:10            Walltime Used: 00:00:03        
+   JobFS requested:    100.0MB                JobFS used: 0B              
+======================================================================================

@@ -1,0 +1,6 @@
+The system is: Linux - 5.3.18-24.75_10.0.189-cray_shasta_c - x86_64
+Failed to detect CUDA nvcc include information:
+  no 'INCLUDES=' string found in nvcc output:
+    
+
+
