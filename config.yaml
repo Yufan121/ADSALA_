@@ -1,0 +1,20 @@
+# BLAS Benchmarking Configuration File
+# This file contains default configuration values for the ADSALA-AMD platform
+
+# Number of threads for pthread operations (filling matrices with random numbers)
+# Range: 1-1024
+num_threads: 24
+
+# Number of duplicate runs for benchmarking each routine
+# Range: 1-1000
+num_of_duplicate: 10
+
+# Predictor configuration
+predictor:
+  # Maximum number of threads for ML predictor (Range: 1-1024)
+  max_num_threads: 96
+  # Maximum number of features (Range: 1-100)
+  max_feature: 17
+  # Number of features used (Range: 1-100)
+  feature_num: 5
+

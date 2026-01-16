@@ -1,0 +1,33 @@
+
+
+{'colsample_bytree': 0.9876768045619254, 'gamma': 3.4248954700187246, 'learning_rate': 0.21293206886381472, 'max_depth': 14, 'min_child_weight': 0.9011735696916544, 'n_estimators': 500, 'reg_alpha': 38.633172928205056, 'reg_lambda': 51.55191706703147, 'subsample': 0.7698949713800649}
+** Train test spliting
+Data set size: 953.6
+Training time: 178360.032402ms
+Testing time: 102.380099ms
+
+Train set r2 Score: 0.9971162647495166
+Test set r2 Score: 0.9885158326752232
+RMSE Score: 13360.529364314187
+Traceback (most recent call last):
+  File "/home/yx7184/ADSALA/ADSALA/model_training/main.py", line 115, in <module>
+    booster.save_model('0001.model')
+  File "/software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/sklearn.py", line 726, in save_model
+    self.get_booster().save_model(fname)
+  File "/software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/core.py", line 2194, in save_model
+    _check_call(_LIB.XGBoosterSaveModel(
+  File "/software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/core.py", line 203, in _check_call
+    raise XGBoostError(py_str(_LIB.XGBGetLastError()))
+xgboost.core.XGBoostError: [18:17:56] ../dmlc-core/src/io/local_filesys.cc:38: Check failed: std::fwrite(ptr, 1, size, fp_) == size: FileStream.Write incomplete
+Stack trace:
+  [bt] (0) /software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/lib/libxgboost.so(+0x729ffd) [0x7f3e3d552ffd]
+  [bt] (1) /software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/lib/libxgboost.so(+0x72bb02) [0x7f3e3d554b02]
+  [bt] (2) /software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/lib/libxgboost.so(+0x2a7f6a) [0x7f3e3d0d0f6a]
+  [bt] (3) /software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/lib/libxgboost.so(+0x1ef6a2) [0x7f3e3d0186a2]
+  [bt] (4) /software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/lib/libxgboost.so(+0x216138) [0x7f3e3d03f138]
+  [bt] (5) /software/projects/director2178/yx7184/setonix/python/lib/python3.9/site-packages/xgboost/lib/libxgboost.so(XGBoosterSaveModel+0x15f) [0x7f3e3ced192f]
+  [bt] (6) /software/setonix/2022.05/software/cray-sles15-zen3/gcc-11.2.0/libffi-3.3-3erkczlotq352uh4bhot6bsc3w4fnipk/lib64/libffi.so.7(+0x794d) [0x7f3e709e494d]
+  [bt] (7) /software/setonix/2022.05/software/cray-sles15-zen3/gcc-11.2.0/libffi-3.3-3erkczlotq352uh4bhot6bsc3w4fnipk/lib64/libffi.so.7(+0x625b) [0x7f3e709e325b]
+  [bt] (8) /software/setonix/2022.05/software/cray-sles15-zen3/gcc-11.2.0/python-3.9.7-otvvw3o7jd2rl5mk5dx6tiiskwhkmklo/lib/python3.9/lib-dynload/_ctypes.cpython-39-x86_64-linux-gnu.so(+0xcd69) [0x7f3e70bf4d69]
+
+
