@@ -1,3 +1,0 @@
-/home/659/yx7184/Project ADSALA/Barca repo/ADSALA/data_collect/lib/CMakeFiles/main.dir
-/home/659/yx7184/Project ADSALA/Barca repo/ADSALA/data_collect/lib/CMakeFiles/edit_cache.dir
-/home/659/yx7184/Project ADSALA/Barca repo/ADSALA/data_collect/lib/CMakeFiles/rebuild_cache.dir

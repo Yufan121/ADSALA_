@@ -1,1 +1,0 @@
-/opt/cray/pe/craype/2.7.14/bin/CC -O3 -Wall -Wextra -g CMakeFiles/main.dir/main.cpp.o CMakeFiles/main.dir/library-manager.cpp.o CMakeFiles/main.dir/interfaces.cpp.o CMakeFiles/main.dir/get-ncores.cpp.o CMakeFiles/main.dir/BLIS-context.cpp.o -o main  -Wl,-rpath,/home/yx7184/ADSALA/ADSALA/data_collect/lib ../lib/libblis-mt.so 

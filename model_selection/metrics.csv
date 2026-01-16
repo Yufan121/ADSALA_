@@ -1,3 +1,0 @@
-,0,1,2,3,4,5,6,7
-0,train_rmse,test_rmse,ideal_speedup_mean,ideal_speedup_overall,train_time(e-6),eval_time(e-6),estimated_speedup_mean,estimated_speedup_overall
-1,7839.056372715004,12750.741896669068,1.5007065939411643,1.3758335930276666,117644264.8652,45.01803036724707,1.4957026636182718,1.3737526429213462

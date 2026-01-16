@@ -28,8 +28,8 @@ if ( NOT BLASType )
 
 					# include data_collect and library_frame as two subdirectories
 
-					add_subdirectory(${PROJECT_SOURCE_DIR}/data_collect)
-					add_subdirectory(${PROJECT_SOURCE_DIR}/library_frame)
+					add_subdirectory(${PROJECT_SOURCE_DIR}/src/data_collect)
+					add_subdirectory(${PROJECT_SOURCE_DIR}/src/library_frame)
 
 					# Enable testing if requested
 					option(BUILD_TESTS "Build test suite" OFF)

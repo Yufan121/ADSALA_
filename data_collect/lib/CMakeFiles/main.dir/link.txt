@@ -1,1 +1,0 @@
-/opt/nci/bin/c++  -O3 -Wall -lpthread -fopenmp "CMakeFiles/main.dir/library-manager.cpp.o" CMakeFiles/main.dir/interfaces.cpp.o "CMakeFiles/main.dir/get-ncores.cpp.o" CMakeFiles/main.dir/main.cpp.o "CMakeFiles/main.dir/MKL-context.cpp.o" -o main  -lmkl_intel_ilp64 -lmkl_gnu_thread -lmkl_core 
