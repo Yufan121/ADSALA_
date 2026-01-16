@@ -2,6 +2,7 @@
 #include "interfaces-ml.h"
 #include "interfaces.cpp"
 #include "blas_exceptions.h"
+#include "blas_config.h"
 #include <thread>
 #include <unistd.h>
 #include <omp.h>
@@ -17,8 +18,6 @@
 
 // #include <papi.h>
 using namespace std;
-
-#define NUM_THREADS 24
 
 // Helper function to get BLAS routine name prefix based on type
 template<typename T>
@@ -51,86 +50,88 @@ long long run_compare_gemm_impl(int m, int k, int n, bool useML, size_t num_of_d
   std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  t_1 = std::chrono::high_resolution_clock::now();
+    t_1 = std::chrono::high_resolution_clock::now(); 
 
   //assign space using std::vector for automatic memory management
   std::vector<T> A(static_cast<size_t>(num_of_duplicate) * m * k);
   std::vector<T> B(static_cast<size_t>(num_of_duplicate) * k * n);
   std::vector<T> C(static_cast<size_t>(num_of_duplicate) * m * n);
 
-  std::cout << "Trying to alloc GB:" << std::endl;
+    std::cout << "Trying to alloc GB:" << std::endl;  
   std::cout << (((unsigned long long)m)*k + n*k + m*n)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
   if (A.empty() || B.empty()) {
-    std::cout << "Trying to alloc:" << std::endl;
+      std::cout << "Trying to alloc:" << std::endl;  
     std::cout << static_cast<size_t>(num_of_duplicate)*m*k*sizeof(T) << std::endl;
-    std::cout << "Allocation error." << std::endl;
-  }
+      std::cout << "Allocation error." << std::endl;  
+    }
 
-  t_2 = std::chrono::high_resolution_clock::now();
+    t_2 = std::chrono::high_resolution_clock::now(); 
 
-  // fill matrices with random numbers
-  // pthread
-  // fill A
-  pthread_t threads[NUM_THREADS];
-  int rc;
-  int i;
-  size_t stride = static_cast<size_t>(num_of_duplicate)*m*k / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill matrices with random numbers
+    // pthread
+    // fill A
+  int num_threads = blas_config::Config::getInstance().getNumThreads();
+  if (num_threads > 1024) num_threads = 1024; // Safety limit
+  pthread_t threads[1024]; // Fixed size array with bounds checking
+    int rc;
+    int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*m*k / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = A.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*k;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*k;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
 
-  // fill B
-  stride = static_cast<size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill B
+  stride = static_cast<size_t>(num_of_duplicate)*n*k   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = B.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
-
-  t_3 = std::chrono::high_resolution_clock::now();
-
-  // Use predictor to set threads
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
+    
+    t_3 = std::chrono::high_resolution_clock::now(); 
+  
+    // Use predictor to set threads
   std::string routine_name = std::string(get_blas_prefix<T>()) + "gemm";
   Predictor predictor("xgb", routine_name);
-  int nt;
-  if (useML) {
+    int nt;
+    if (useML) {
     nt = predictor.model->predict_num_cores(m, k, n, routine_name);
-    omp_set_num_threads(nt);
-  } else {
-    nt = max_num_threads;
-    omp_set_num_threads(nt);
-  }
-  std::cout << "Number of threads: " << nt << std::endl;
+      omp_set_num_threads(nt);
+    } else {
+      nt = max_num_threads;
+      omp_set_num_threads(nt);
+    }
+    std::cout << "Number of threads: " << nt << std::endl;
 
   // Call appropriate BLAS function based on type
   for (int i = 0; i < num_of_duplicate; i++) {
-    t1 = std::chrono::high_resolution_clock::now();
+      t1 = std::chrono::high_resolution_clock::now(); 
 
     if constexpr (std::is_same_v<T, double>) {
       lib->dgemm(m, k, n, 1.0, &A[static_cast<size_t>(i)*m*k], &B[static_cast<size_t>(i)*k*n], 0.0, &C[static_cast<size_t>(i)*m*n]);
@@ -138,25 +139,25 @@ long long run_compare_gemm_impl(int m, int k, int n, bool useML, size_t num_of_d
       lib->sgemm(m, k, n, 1.0f, &A[static_cast<size_t>(i)*m*k], &B[static_cast<size_t>(i)*k*n], 0.0f, &C[static_cast<size_t>(i)*m*n]);
     }
 
-    t2 = std::chrono::high_resolution_clock::now();
-    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-    time_vect.push_back(time);
-  }
+      t2 = std::chrono::high_resolution_clock::now();
+      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+      time_vect.push_back(time);
+    }
 
-  t_4 = std::chrono::high_resolution_clock::now();
-  t_5 = std::chrono::high_resolution_clock::now();
+    t_4 = std::chrono::high_resolution_clock::now(); 
+    t_5 = std::chrono::high_resolution_clock::now(); 
 
   time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
   time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
   time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
   time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
 
-  std::cout << "time1~time4:" << std::endl;
-  std::cout << time1 << std::endl;
-  std::cout << time2 << std::endl;
-  std::cout << time3 << std::endl;
-  std::cout << time4 << std::endl;
-  std::cout << "End: time1~time4:" << std::endl;
+  std::cout << "time1~time4:" << std::endl; 
+  std::cout << time1 << std::endl;  
+  std::cout << time2 << std::endl;  
+  std::cout << time3 << std::endl;  
+  std::cout << time4 << std::endl;  
+  std::cout << "End: time1~time4:" << std::endl;  
 
   // return average of time_vect
   long long sum = 0;
@@ -172,7 +173,7 @@ long long run_compare_gemm_impl(int m, int k, int n, bool useML, size_t num_of_d
 long long test_class_ml::run_compare_gemm_(int m, int k, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
   if (isDouble) {
     return run_compare_gemm_impl<double>(m, k, n, useML, num_of_duplicate, lib);
-  } else {
+    } else {
     return run_compare_gemm_impl<float>(m, k, n, useML, num_of_duplicate, lib);
   }
 }
@@ -188,108 +189,110 @@ long long run_compare_symm_impl(int m, int n, bool useML, size_t num_of_duplicat
   std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  t_1 = std::chrono::high_resolution_clock::now();
+    t_1 = std::chrono::high_resolution_clock::now(); 
 
   std::vector<T> A(static_cast<size_t>(num_of_duplicate) * m * m);
   std::vector<T> B(static_cast<size_t>(num_of_duplicate) * m * n);
   std::vector<T> C(static_cast<size_t>(num_of_duplicate) * m * n);
 
-  std::cout << "Trying to alloc GB:" << std::endl;
+    std::cout << "Trying to alloc GB:" << std::endl;  
   std::cout << (((unsigned long long)m)*m + m*n + m*n)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
   if (A.empty() || B.empty()) {
-    std::cout << "Trying to alloc:" << std::endl;
+      std::cout << "Trying to alloc:" << std::endl;  
     std::cout << static_cast<size_t>(num_of_duplicate)*m*m*sizeof(T) << std::endl;
-    std::cout << "Allocation error." << std::endl;
-  }
+      std::cout << "Allocation error." << std::endl;  
+    }
 
-  t_2 = std::chrono::high_resolution_clock::now();
+    t_2 = std::chrono::high_resolution_clock::now(); 
 
-  // fill A (symmetric)
-  pthread_t threads[NUM_THREADS];
-  int rc;
-  int i;
-  size_t total_elements = m * (m + 1) / 2;
-  size_t stride = total_elements / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg_symm *arg_ptr = (struct t_arg_symm *)malloc(sizeof(struct t_arg_symm));
+    // fill A (symmetric)
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
+    int rc;
+    int i;
+    size_t total_elements = m * (m + 1) / 2;
+    size_t stride = total_elements   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg_symm *arg_ptr = (struct t_arg_symm *)malloc(sizeof(struct t_arg_symm));
     arg_ptr->M = A.data();
-    arg_ptr->m = m;
-    size_t start = i * stride;
-    size_t end = (i == NUM_THREADS - 1) ? total_elements : (i + 1) * stride;
-    arg_ptr->row_start = static_cast<size_t>(sqrt(2 * start + 0.25) - 0.5);
-    arg_ptr->col_start = start - arg_ptr->row_start * (arg_ptr->row_start + 1) / 2;
-    arg_ptr->row_end = static_cast<size_t>(sqrt(2 * end + 0.25) - 0.5);
-    arg_ptr->col_end = end - arg_ptr->row_end * (arg_ptr->row_end + 1) / 2;
+        arg_ptr->m = m;
+        size_t start = i * stride;
+        size_t end = (i == num_threads - 1) ? total_elements : (i + 1) * stride;
+        arg_ptr->row_start = static_cast<size_t>(sqrt(2 * start + 0.25) - 0.5);
+        arg_ptr->col_start = start - arg_ptr->row_start * (arg_ptr->row_start + 1) / 2;
+        arg_ptr->row_end = static_cast<size_t>(sqrt(2 * end + 0.25) - 0.5);
+        arg_ptr->col_end = end - arg_ptr->row_end * (arg_ptr->row_end + 1) / 2;
     arg_ptr->type = get_type_char<T>();
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_symmetric, (void *)arg_ptr);
-    if (rc) {
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_symmetric, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
 
-  // fill B
-  stride = static_cast<size_t>(num_of_duplicate)*m*n / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill B
+  stride = static_cast<size_t>(num_of_duplicate)*m*n   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = B.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*n;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*n;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
-
-  t_3 = std::chrono::high_resolution_clock::now();
-
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }    
+    
+    t_3 = std::chrono::high_resolution_clock::now(); 
+  
   std::string routine_name = std::string(get_blas_prefix<T>()) + "symm";
   Predictor predictor("xgb", routine_name);
-  int nt;
-  if (useML) {
+    int nt;
+    if (useML) {
     nt = predictor.model->predict_num_cores(m, n, routine_name);
-    omp_set_num_threads(nt);
-  } else {
-    nt = max_num_threads;
-    omp_set_num_threads(nt);
-  }
-  std::cout << "Number of threads: " << nt << std::endl;
+      omp_set_num_threads(nt);
+    } else {
+      nt = max_num_threads;
+      omp_set_num_threads(nt);
+    }
+    std::cout << "Number of threads: " << nt << std::endl;
 
   for (int i = 0; i < num_of_duplicate; i++) {
-    t1 = std::chrono::high_resolution_clock::now();
+      t1 = std::chrono::high_resolution_clock::now(); 
     if constexpr (std::is_same_v<T, double>) {
       lib->dsymm(m, n, 1.0, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n], 0.0, &C[static_cast<size_t>(i)*m*n]);
     } else {
       lib->ssymm(m, n, 1.0f, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n], 0.0f, &C[static_cast<size_t>(i)*m*n]);
     }
-    t2 = std::chrono::high_resolution_clock::now();
-    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-    time_vect.push_back(time);
-  }
+      t2 = std::chrono::high_resolution_clock::now();
+      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+      time_vect.push_back(time);
+    }
 
-  t_4 = std::chrono::high_resolution_clock::now();
-  t_5 = std::chrono::high_resolution_clock::now();
+    t_4 = std::chrono::high_resolution_clock::now(); 
+    t_5 = std::chrono::high_resolution_clock::now(); 
 
   time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
   time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
   time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
   time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
 
-  std::cout << "time1~time4:" << std::endl;
-  std::cout << time1 << std::endl;
-  std::cout << time2 << std::endl;
-  std::cout << time3 << std::endl;
-  std::cout << time4 << std::endl;
-  std::cout << "End: time1~time4:" << std::endl;
+  std::cout << "time1~time4:" << std::endl; 
+  std::cout << time1 << std::endl;  
+  std::cout << time2 << std::endl;  
+  std::cout << time3 << std::endl;  
+  std::cout << time4 << std::endl;  
+  std::cout << "End: time1~time4:" << std::endl;  
 
   long long sum = 0;
   for (size_t i = 0; i < time_vect.size(); i++) {
@@ -317,102 +320,104 @@ long long run_compare_syrk_impl(int n, int k, bool useML, size_t num_of_duplicat
   std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  t_1 = std::chrono::high_resolution_clock::now();
+    t_1 = std::chrono::high_resolution_clock::now(); 
 
   std::vector<T> A(static_cast<size_t>(num_of_duplicate) * n * k);
   std::vector<T> C(static_cast<size_t>(num_of_duplicate) * n * n);
 
-  std::cout << "Trying to alloc GB:" << std::endl;
+    std::cout << "Trying to alloc GB:" << std::endl;  
   std::cout << (((unsigned long long)n)*n + n*k)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
   if (A.empty() || C.empty()) {
-    std::cout << "Trying to alloc:" << std::endl;
+      std::cout << "Trying to alloc:" << std::endl;  
     std::cout << static_cast<size_t>(num_of_duplicate)*n*n*sizeof(T) << std::endl;
-    std::cout << "Allocation error." << std::endl;
-  }
+      std::cout << "Allocation error." << std::endl;  
+    }
 
-  t_2 = std::chrono::high_resolution_clock::now();
+    t_2 = std::chrono::high_resolution_clock::now(); 
 
-  // fill A
-  pthread_t threads[NUM_THREADS];
-  int rc;
-  int i;
-  size_t stride = static_cast<size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill A 
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
+    int rc;
+    int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*n*k   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = A.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
 
-  // fill C
-  stride = static_cast<size_t>(num_of_duplicate)*n*n / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill C
+  stride = static_cast<size_t>(num_of_duplicate)*n*n   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = C.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*n;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*n;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
-
-  t_3 = std::chrono::high_resolution_clock::now();
-
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
+    
+    t_3 = std::chrono::high_resolution_clock::now(); 
+  
   std::string routine_name = std::string(get_blas_prefix<T>()) + "syrk";
   Predictor predictor("xgb", routine_name);
-  int nt;
-  if (useML) {
+    int nt;
+    if (useML) {
     nt = predictor.model->predict_num_cores(n, k, routine_name);
-    omp_set_num_threads(nt);
-  } else {
-    nt = max_num_threads;
-    omp_set_num_threads(nt);
-  }
-  std::cout << "Number of threads: " << nt << std::endl;
+      omp_set_num_threads(nt);
+    } else {
+      nt = max_num_threads;
+      omp_set_num_threads(nt);
+    }
+    std::cout << "Number of threads: " << nt << std::endl;
 
   for (int i = 0; i < num_of_duplicate; i++) {
-    t1 = std::chrono::high_resolution_clock::now();
+      t1 = std::chrono::high_resolution_clock::now(); 
     if constexpr (std::is_same_v<T, double>) {
       lib->dsyrk(n, k, 1.0, &A[static_cast<size_t>(i)*n*k], 0.0, &C[static_cast<size_t>(i)*n*n]);
     } else {
       lib->ssyrk(n, k, 1.0f, &A[static_cast<size_t>(i)*n*k], 0.0f, &C[static_cast<size_t>(i)*n*n]);
     }
-    t2 = std::chrono::high_resolution_clock::now();
-    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-    time_vect.push_back(time);
-  }
+      t2 = std::chrono::high_resolution_clock::now();
+      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+      time_vect.push_back(time);
+    }
 
-  t_4 = std::chrono::high_resolution_clock::now();
-  t_5 = std::chrono::high_resolution_clock::now();
+    t_4 = std::chrono::high_resolution_clock::now(); 
+    t_5 = std::chrono::high_resolution_clock::now(); 
 
   time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
   time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
   time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
   time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
 
-  std::cout << "time1~time4:" << std::endl;
-  std::cout << time1 << std::endl;
-  std::cout << time2 << std::endl;
-  std::cout << time3 << std::endl;
-  std::cout << time4 << std::endl;
-  std::cout << "End: time1~time4:" << std::endl;
+  std::cout << "time1~time4:" << std::endl; 
+  std::cout << time1 << std::endl;  
+  std::cout << time2 << std::endl;  
+  std::cout << time3 << std::endl;  
+  std::cout << time4 << std::endl;  
+  std::cout << "End: time1~time4:" << std::endl;  
 
   long long sum = 0;
   for (size_t i = 0; i < time_vect.size(); i++) {
@@ -440,122 +445,124 @@ long long run_compare_syr2k_impl(int n, int k, bool useML, size_t num_of_duplica
   std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  t_1 = std::chrono::high_resolution_clock::now();
+    t_1 = std::chrono::high_resolution_clock::now(); 
 
   std::vector<T> A(static_cast<size_t>(num_of_duplicate) * n * k);
   std::vector<T> B(static_cast<size_t>(num_of_duplicate) * n * k);
   std::vector<T> C(static_cast<size_t>(num_of_duplicate) * n * n);
 
-  std::cout << "Trying to alloc GB:" << std::endl;
+    std::cout << "Trying to alloc GB:" << std::endl;  
   std::cout << (((unsigned long long)n)*n + 2*n*k)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
   if (A.empty() || C.empty()) {
-    std::cout << "Trying to alloc:" << std::endl;
+      std::cout << "Trying to alloc:" << std::endl;  
     std::cout << static_cast<size_t>(num_of_duplicate)*n*n*sizeof(T) << std::endl;
-    std::cout << "Allocation error." << std::endl;
-  }
+      std::cout << "Allocation error." << std::endl;  
+    }
 
-  t_2 = std::chrono::high_resolution_clock::now();
+    t_2 = std::chrono::high_resolution_clock::now(); 
 
-  // fill A
-  pthread_t threads[NUM_THREADS];
-  int rc;
-  int i;
-  size_t stride = static_cast<size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill A 
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
+    int rc;
+    int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*n*k   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = A.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
 
-  // fill B
-  stride = static_cast<size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill B
+  stride = static_cast<size_t>(num_of_duplicate)*n*k   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = B.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
 
-  // fill C
-  stride = static_cast<size_t>(num_of_duplicate)*n*n / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill C
+  stride = static_cast<size_t>(num_of_duplicate)*n*n   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = C.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*n;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*n;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
-
-  t_3 = std::chrono::high_resolution_clock::now();
-
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
+    
+    t_3 = std::chrono::high_resolution_clock::now(); 
+  
   std::string routine_name = std::string(get_blas_prefix<T>()) + "syr2k";
   Predictor predictor("xgb", routine_name);
-  int nt;
-  if (useML) {
+    int nt;
+    if (useML) {
     nt = predictor.model->predict_num_cores(n, k, routine_name);
-    omp_set_num_threads(nt);
-  } else {
-    nt = max_num_threads;
-    omp_set_num_threads(nt);
-  }
-  std::cout << "Number of threads: " << nt << std::endl;
+      omp_set_num_threads(nt);
+    } else {
+      nt = max_num_threads;
+      omp_set_num_threads(nt);
+    }
+    std::cout << "Number of threads: " << nt << std::endl;
 
   for (int i = 0; i < num_of_duplicate; i++) {
-    t1 = std::chrono::high_resolution_clock::now();
+      t1 = std::chrono::high_resolution_clock::now(); 
     if constexpr (std::is_same_v<T, double>) {
       lib->dsyr2k(n, k, 1.0, &A[static_cast<size_t>(i)*n*k], &B[static_cast<size_t>(i)*n*k], 0.0, &C[static_cast<size_t>(i)*n*n]);
     } else {
       lib->ssyr2k(n, k, 1.0f, &A[static_cast<size_t>(i)*n*k], &B[static_cast<size_t>(i)*n*k], 0.0f, &C[static_cast<size_t>(i)*n*n]);
     }
-    t2 = std::chrono::high_resolution_clock::now();
-    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-    time_vect.push_back(time);
-  }
+      t2 = std::chrono::high_resolution_clock::now();
+      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+      time_vect.push_back(time);
+    }
 
-  t_4 = std::chrono::high_resolution_clock::now();
-  t_5 = std::chrono::high_resolution_clock::now();
+    t_4 = std::chrono::high_resolution_clock::now(); 
+    t_5 = std::chrono::high_resolution_clock::now(); 
 
   time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
   time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
   time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
   time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
 
-  std::cout << "time1~time4:" << std::endl;
-  std::cout << time1 << std::endl;
-  std::cout << time2 << std::endl;
-  std::cout << time3 << std::endl;
-  std::cout << time4 << std::endl;
-  std::cout << "End: time1~time4:" << std::endl;
+  std::cout << "time1~time4:" << std::endl; 
+  std::cout << time1 << std::endl;  
+  std::cout << time2 << std::endl;  
+  std::cout << time3 << std::endl;  
+  std::cout << time4 << std::endl;  
+  std::cout << "End: time1~time4:" << std::endl;  
 
   long long sum = 0;
   for (size_t i = 0; i < time_vect.size(); i++) {
@@ -583,95 +590,97 @@ long long run_compare_trmm_impl(int m, int n, bool useML, size_t num_of_duplicat
   std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  t_1 = std::chrono::high_resolution_clock::now();
+    t_1 = std::chrono::high_resolution_clock::now(); 
 
   std::vector<T> A(static_cast<size_t>(num_of_duplicate) * m * m);
   std::vector<T> B(static_cast<size_t>(num_of_duplicate) * m * n);
 
-  std::cout << "Trying to alloc GB:" << std::endl;
+    std::cout << "Trying to alloc GB:" << std::endl;  
   std::cout << (((unsigned long long)m)*m + m*n)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
   if (A.empty() || B.empty()) {
-    std::cout << "Trying to alloc:" << std::endl;
+      std::cout << "Trying to alloc:" << std::endl;  
     std::cout << static_cast<size_t>(num_of_duplicate)*m*m*sizeof(T) << std::endl;
-    std::cout << "Allocation error." << std::endl;
-  }
-
-  t_2 = std::chrono::high_resolution_clock::now();
-
-  // fill A (triangular)
-  pthread_t threads[NUM_THREADS];
-  int rc;
-  int i;
-  size_t stride = static_cast<size_t>(num_of_duplicate)*m*m / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-    arg_ptr->M = A.data();
-    arg_ptr->start = i * stride;
-    arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*m;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
-      throw blas_exceptions::ThreadCreationException(rc);
+      std::cout << "Allocation error." << std::endl;  
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
-  // make A upper triangular
-  for (int row = 0; row < m; row++) {
-    for (int col = 0; col < row; col++) {
+
+    t_2 = std::chrono::high_resolution_clock::now(); 
+
+    // fill A (triangular)
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
+    int rc;
+    int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*m*m   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = A.data();
+        arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*m;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
+      throw blas_exceptions::ThreadCreationException(rc);
+        }
+    }
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
+    // make A upper triangular
+    for (int row = 0; row < m; row++) {
+        for (int col = 0; col < row; col++) {
       A[row*m + col] = T(0.0);
     }
   }
 
-  // fill B
-  stride = static_cast<size_t>(num_of_duplicate)*m*n / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill B
+  stride = static_cast<size_t>(num_of_duplicate)*m*n   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = B.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*n;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*n;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
-
-  t_3 = std::chrono::high_resolution_clock::now();
-
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
+    
+    t_3 = std::chrono::high_resolution_clock::now(); 
+  
   std::string routine_name = std::string(get_blas_prefix<T>()) + "trmm";
   Predictor predictor("xgb", routine_name);
-  int nt;
-  if (useML) {
+    int nt;
+    if (useML) {
     nt = predictor.model->predict_num_cores(m, n, routine_name);
-    omp_set_num_threads(nt);
-  } else {
-    nt = max_num_threads;
-    omp_set_num_threads(nt);
-  }
-  std::cout << "Number of threads: " << nt << std::endl;
+      omp_set_num_threads(nt);
+    } else {
+      nt = max_num_threads;
+      omp_set_num_threads(nt);
+    }
+    std::cout << "Number of threads: " << nt << std::endl;
 
   for (int i = 0; i < num_of_duplicate; i++) {
-    t1 = std::chrono::high_resolution_clock::now();
+      t1 = std::chrono::high_resolution_clock::now(); 
     if constexpr (std::is_same_v<T, double>) {
       lib->dtrmm(m, n, 1.0, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n]);
     } else {
       lib->strmm(m, n, 1.0f, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n]);
     }
-    t2 = std::chrono::high_resolution_clock::now();
-    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-    time_vect.push_back(time);
-  }
+      t2 = std::chrono::high_resolution_clock::now();
+      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+      time_vect.push_back(time);
+    }
 
-  t_4 = std::chrono::high_resolution_clock::now();
+    t_4 = std::chrono::high_resolution_clock::now(); 
   t_5 = std::chrono::high_resolution_clock::now();
 
   time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
@@ -704,108 +713,110 @@ long long run_compare_trsm_impl(int m, int n, bool useML, size_t num_of_duplicat
   std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  t_1 = std::chrono::high_resolution_clock::now();
+    t_1 = std::chrono::high_resolution_clock::now(); 
 
   std::vector<T> A(static_cast<size_t>(num_of_duplicate) * m * m);
   std::vector<T> B(static_cast<size_t>(num_of_duplicate) * m * n);
 
-  std::cout << "Trying to alloc GB:" << std::endl;
+    std::cout << "Trying to alloc GB:" << std::endl;  
   std::cout << (((unsigned long long)m)*m + m*n)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
   if (A.empty() || B.empty()) {
-    std::cout << "Trying to alloc:" << std::endl;
+      std::cout << "Trying to alloc:" << std::endl;  
     std::cout << static_cast<size_t>(num_of_duplicate)*m*m*sizeof(T) << std::endl;
-    std::cout << "Allocation error." << std::endl;
-  }
-
-  t_2 = std::chrono::high_resolution_clock::now();
-
-  // fill A (triangular)
-  pthread_t threads[NUM_THREADS];
-  int rc;
-  int i;
-  size_t stride = static_cast<size_t>(num_of_duplicate)*m*m / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-    arg_ptr->M = A.data();
-    arg_ptr->start = i * stride;
-    arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*m;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
-      throw blas_exceptions::ThreadCreationException(rc);
+      std::cout << "Allocation error." << std::endl;  
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
-  // make A upper triangular
-  for (int row = 0; row < m; row++) {
-    for (int col = 0; col < row; col++) {
+
+    t_2 = std::chrono::high_resolution_clock::now(); 
+
+    // fill A (triangular)
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
+    int rc;
+    int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*m*m   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = A.data();
+        arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*m;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
+      throw blas_exceptions::ThreadCreationException(rc);
+        }
+    }
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }
+    // make A upper triangular
+    for (int row = 0; row < m; row++) {
+        for (int col = 0; col < row; col++) {
       A[row*m + col] = T(0.0);
     }
   }
 
-  // fill B
-  stride = static_cast<size_t>(num_of_duplicate)*m*n / NUM_THREADS;
-  for (i = 0; i < NUM_THREADS; i++) {
-    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    // fill B
+  stride = static_cast<size_t>(num_of_duplicate)*m*n   / num_threads;
+  for (i = 0; i < num_threads; i++) {
+        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
     arg_ptr->M = B.data();
-    arg_ptr->start = i * stride;
+        arg_ptr->start = i * stride;
     arg_ptr->type = get_type_char<T>();
-    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*n;
-    else arg_ptr->end = (i+1) * stride;
-    arg_ptr->seed = i;
-    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-    if (rc) {
+    if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*n;
+        else arg_ptr->end = (i+1) * stride;
+        arg_ptr->seed = i;
+        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+        if (rc) {
       throw blas_exceptions::ThreadCreationException(rc);
+        }
     }
-  }
-  for (i = 0; i < NUM_THREADS; i++) {
-    rc = pthread_join(threads[i], NULL);
-  }
-
-  t_3 = std::chrono::high_resolution_clock::now();
-
+  for (i = 0; i < num_threads; i++) {
+        rc = pthread_join(threads[i], NULL);
+    }    
+    
+    t_3 = std::chrono::high_resolution_clock::now(); 
+  
   std::string routine_name = std::string(get_blas_prefix<T>()) + "trsm";
   Predictor predictor("xgb", routine_name);
-  int nt;
-  if (useML) {
+    int nt;
+    if (useML) {
     nt = predictor.model->predict_num_cores(m, n, routine_name);
-    omp_set_num_threads(nt);
-  } else {
-    nt = max_num_threads;
-    omp_set_num_threads(nt);
-  }
-  std::cout << "Number of threads: " << nt << std::endl;
+      omp_set_num_threads(nt);
+    } else {
+      nt = max_num_threads;
+      omp_set_num_threads(nt);
+    }
+    std::cout << "Number of threads: " << nt << std::endl;
 
   for (int i = 0; i < num_of_duplicate; i++) {
-    t1 = std::chrono::high_resolution_clock::now();
+      t1 = std::chrono::high_resolution_clock::now(); 
     if constexpr (std::is_same_v<T, double>) {
       lib->dtrsm(m, n, 1.0, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n]);
     } else {
       lib->strsm(m, n, 1.0f, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n]);
     }
-    t2 = std::chrono::high_resolution_clock::now();
-    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-    time_vect.push_back(time);
-  }
+      t2 = std::chrono::high_resolution_clock::now();
+      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+      time_vect.push_back(time);
+    }
 
-  t_4 = std::chrono::high_resolution_clock::now();
-  t_5 = std::chrono::high_resolution_clock::now();
+    t_4 = std::chrono::high_resolution_clock::now(); 
+    t_5 = std::chrono::high_resolution_clock::now(); 
 
   time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
   time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
   time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
   time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
 
-  std::cout << "time1~time4:" << std::endl;
-  std::cout << time1 << std::endl;
-  std::cout << time2 << std::endl;
-  std::cout << time3 << std::endl;
-  std::cout << time4 << std::endl;
-  std::cout << "End: time1~time4:" << std::endl;
+  std::cout << "time1~time4:" << std::endl; 
+  std::cout << time1 << std::endl;  
+  std::cout << time2 << std::endl;  
+  std::cout << time3 << std::endl;  
+  std::cout << time4 << std::endl;  
+  std::cout << "End: time1~time4:" << std::endl;  
 
   long long sum = 0;
   for (size_t i = 0; i < time_vect.size(); i++) {
@@ -842,16 +853,18 @@ long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool use
 long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
     // pthread
     // fill A (triangular)
-    pthread_t threads[NUM_THREADS];
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
     int rc;
     int i;
-    size_t stride = static_cast <size_t>(num_of_duplicate)*m*m / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    size_t stride = static_cast <size_t>(num_of_duplicate)*m*m / num_threads;
+    for( i = 0; i < num_threads; i++ ) {
         struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
         arg_ptr->M = A.data();
         arg_ptr->start = i * stride;
         arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*m;
+        if (i == num_threads - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*m;
         else arg_ptr->end = (i+1) * stride;
         arg_ptr->seed = i;
         rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
@@ -860,7 +873,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
           throw blas_exceptions::ThreadCreationException(rc);
         }
     }
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    for( i = 0; i < num_threads; i++ ) {
         rc = pthread_join(threads[i], NULL);
     }
     // make A upper triangular
@@ -869,7 +882,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
             A[row*m + col] = 0.0;
         }
     }
-    
+
 
 #ifdef DEBUG
 
@@ -896,13 +909,13 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
 #endif
 
     // fill B
-    stride = static_cast <size_t>(num_of_duplicate)*m*n / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    stride = static_cast <size_t>(num_of_duplicate)*m*n / num_threads;
+    for( i = 0; i < num_threads; i++ ) {
         struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
         arg_ptr->M = B.data();
         arg_ptr->start = i * stride;
         arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*n;
+        if (i == num_threads - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*n;
         else arg_ptr->end = (i+1) * stride;
         arg_ptr->seed = i;
         rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
@@ -911,7 +924,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
           throw blas_exceptions::ThreadCreationException(rc);
         }
     }
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    for( i = 0; i < num_threads; i++ ) {
         rc = pthread_join(threads[i], NULL);
     }
 
@@ -973,16 +986,18 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
     // fill matrices with random numbers
     // pthread
     // fill A (triangular)
-    pthread_t threads[NUM_THREADS];
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
     int rc;
     int i;
-    size_t stride = static_cast <size_t>(num_of_duplicate)*m*m / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    size_t stride = static_cast <size_t>(num_of_duplicate)*m*m / num_threads;
+    for( i = 0; i < num_threads; i++ ) {
         struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
         arg_ptr->M = A.data();
         arg_ptr->start = i * stride;
         arg_ptr->type = 'f'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*m;
+        if (i == num_threads - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*m;
         else arg_ptr->end = (i+1) * stride;
         arg_ptr->seed = i;
         rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
@@ -991,7 +1006,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
           throw blas_exceptions::ThreadCreationException(rc);
         }
     }
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    for( i = 0; i < num_threads; i++ ) {
         rc = pthread_join(threads[i], NULL);
     }
     // make A upper triangular
@@ -1029,13 +1044,13 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
 #endif
 
     // fill B
-    stride = static_cast <size_t>(num_of_duplicate)*m*n / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    stride = static_cast <size_t>(num_of_duplicate)*m*n / num_threads;
+    for( i = 0; i < num_threads; i++ ) {
         struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
         arg_ptr->M = B.data();
         arg_ptr->start = i * stride;
         arg_ptr->type = 'f';
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*n;
+        if (i == num_threads - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*n;
         else arg_ptr->end = (i+1) * stride;
         arg_ptr->seed = i;
         rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
@@ -1044,7 +1059,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
           throw blas_exceptions::ThreadCreationException(rc);
         }
     }
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    for( i = 0; i < num_threads; i++ ) {
         rc = pthread_join(threads[i], NULL);
     }    
     
@@ -1143,17 +1158,19 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
     // fill matrices with random numbers
     // pthread
     // fill A
-    pthread_t threads[NUM_THREADS];
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
     int rc;
     int i;
-    size_t stride = static_cast<size_t>(num_of_duplicate) * m * n / NUM_THREADS;
+    size_t stride = static_cast<size_t>(num_of_duplicate) * m * n / num_threads;
 
-    for (i = 0; i < NUM_THREADS; i++) {
+    for (i = 0; i < num_threads; i++) {
         t_arg *arg_ptr = new t_arg;
         arg_ptr->M = A; // matrix start address
         arg_ptr->start = i * stride; // thread start address
         arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate) * m * n;
+        if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate) * m * n;
         else arg_ptr->end = (i + 1) * stride; // thread end address
         arg_ptr->seed = i;
         rc = pthread_create(&threads[i], NULL, fill_with_rand, static_cast<void*>(arg_ptr));
@@ -1166,7 +1183,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
         // delete arg_ptr;
     }
 
-    for (i = 0; i < NUM_THREADS; i++) {
+  for (i = 0; i < num_threads; i++) {
         rc = pthread_join(threads[i], NULL);
     }
 
@@ -1241,17 +1258,19 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
     // fill matrices with random numbers
     // pthread
     // fill A
-    pthread_t threads[NUM_THREADS];
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
     int rc;
     int i;
-    size_t stride = static_cast<size_t>(num_of_duplicate) * m * n / NUM_THREADS;
+    size_t stride = static_cast<size_t>(num_of_duplicate) * m * n / num_threads;
 
-    for (i = 0; i < NUM_THREADS; i++) {
+    for (i = 0; i < num_threads; i++) {
         t_arg *arg_ptr = new t_arg;
         arg_ptr->M = A; // matrix start address
         arg_ptr->start = i * stride; // thread start address
         arg_ptr->type = 'f'; // float
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate) * m * n;
+        if (i == num_threads - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate) * m * n;
         else arg_ptr->end = (i + 1) * stride; // thread end address
         arg_ptr->seed = i;
         rc = pthread_create(&threads[i], NULL, fill_with_rand, static_cast<void*>(arg_ptr));
@@ -1264,7 +1283,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
         // delete arg_ptr;
     }
 
-    for (i = 0; i < NUM_THREADS; i++) {
+  for (i = 0; i < num_threads; i++) {
         rc = pthread_join(threads[i], NULL);
     }
 
@@ -1530,18 +1549,20 @@ long long test_class_ml::run_compare_trsv_(int n, bool isDouble, bool useML, siz
     // fill matrices with random numbers
     // pthread
     // fill A
-    pthread_t threads[NUM_THREADS];
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
     int rc;
     int i;
     size_t total_elements = n * (n + 1) / 2;
-    size_t stride = total_elements / NUM_THREADS;
+    size_t stride = total_elements / num_threads;
 
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    for( i = 0; i < num_threads; i++ ) {
         struct t_arg_symm *arg_ptr = (struct t_arg_symm *)malloc(sizeof(struct t_arg_symm));
         arg_ptr->M = A;
         arg_ptr->m = n;
         size_t start = i * stride;
-        size_t end = (i == NUM_THREADS - 1) ? total_elements : (i + 1) * stride;
+        size_t end = (i == num_threads - 1) ? total_elements : (i + 1) * stride;
 
         arg_ptr->row_start = static_cast<size_t>((sqrt(2 * start + 0.25) - 0.5)); 
         arg_ptr->col_start = start - arg_ptr->row_start * (arg_ptr->row_start + 1) / 2;
@@ -1558,7 +1579,7 @@ long long test_class_ml::run_compare_trsv_(int n, bool isDouble, bool useML, siz
           throw blas_exceptions::ThreadCreationException(rc);
         }
     }
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    for( i = 0; i < num_threads; i++ ) {
         rc = pthread_join(threads[i], NULL);
     }
 
@@ -1632,18 +1653,20 @@ long long test_class_ml::run_compare_trsv_(int n, bool isDouble, bool useML, siz
     // fill matrices with random numbers
     // pthread
     // fill A
-    pthread_t threads[NUM_THREADS];
+    int num_threads = blas_config::Config::getInstance().getNumThreads();
+    if (num_threads > 1024) num_threads = 1024; // Safety limit
+    pthread_t threads[1024]; // Fixed size array with bounds checking
     int rc;
     int i;
     size_t total_elements = n * (n + 1) / 2;
-    size_t stride = total_elements / NUM_THREADS;
+    size_t stride = total_elements / num_threads;
 
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    for( i = 0; i < num_threads; i++ ) {
         struct t_arg_symm *arg_ptr = (struct t_arg_symm *)malloc(sizeof(struct t_arg_symm));
         arg_ptr->M = A;
         arg_ptr->m = n;
         size_t start = i * stride;
-        size_t end = (i == NUM_THREADS - 1) ? total_elements : (i + 1) * stride;
+        size_t end = (i == num_threads - 1) ? total_elements : (i + 1) * stride;
 
         arg_ptr->row_start = static_cast<int>((sqrt(2 * start + 0.25) - 0.5));
         arg_ptr->col_start = start - arg_ptr->row_start * (arg_ptr->row_start + 1) / 2;
@@ -1665,7 +1688,7 @@ long long test_class_ml::run_compare_trsv_(int n, bool isDouble, bool useML, siz
           throw blas_exceptions::ThreadCreationException(rc);
         }
     }
-    for( i = 0; i < NUM_THREADS; i++ ) {
+    for( i = 0; i < num_threads; i++ ) {
         rc = pthread_join(threads[i], NULL);
     }
 

@@ -33,10 +33,20 @@ link_directories(${CMAKE_BINARY_DIR}/predictor)
 
 
 message(${PROJECT_NAME} )
+
+# Find yaml-cpp library
+find_package(yaml-cpp QUIET)
+if(NOT yaml-cpp_FOUND)
+    message(WARNING "yaml-cpp not found. Configuration system will use defaults.")
+    message(STATUS "To install yaml-cpp: sudo apt-get install libyaml-cpp-dev (Ubuntu/Debian)")
+    message(STATUS "                      brew install yaml-cpp (macOS)")
+endif()
+
 add_library(${PROJECT_NAME} SHARED #${SOURCE_FILES}
                 # ${PROJECT_SOURCE_DIR}/src/BLIS-context.cpp
                 # ${PROJECT_SOURCE_DIR}/src/get-ncores.cpp
                 ${PROJECT_SOURCE_DIR}/src/interfaces-ml.cpp
+                ${PROJECT_SOURCE_DIR}/src/blas_config.cpp
                 # ${PROJECT_SOURCE_DIR}/src/library-manager.cpp
                 # ${PROJECT_SOURCE_DIR}/src/MKL-context.cpp
                 )
@@ -45,6 +55,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
             ${CMAKE_SOURCE_DIR}/data_collect
             )
 target_link_libraries(${PROJECT_NAME} data_collect predictor)
+if(yaml-cpp_FOUND)
+    target_link_libraries(${PROJECT_NAME} yaml-cpp)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HAVE_YAML_CPP)
+endif()
 
 # # add AMD BLIS library
 # set(BLA_VENDOR Intel10_64lp)

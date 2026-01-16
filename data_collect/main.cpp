@@ -15,6 +15,7 @@ using namespace std;
 // #include "domain-files.h"
 #include "rapidcsv.h"
 #include "../library_frame/BLAS/include/blas_exceptions.h"
+#include "../library_frame/BLAS/include/blas_config.h"
 
 // Helper function to read CSV domain values
 template<typename T>
@@ -221,7 +222,15 @@ int main(int argc, char *argv[]) {
       throw blas_exceptions::CSVException("read", "failed to open file '" + domain_file_name + "': " + e.what());
     }
 
-    int num_of_duplicate = 10;
+    // Load configuration
+    try {
+      blas_config::Config::getInstance().loadFromFile("config.yaml");
+    } catch (const blas_exceptions::ConfigurationException& e) {
+      // If config file not found, use defaults
+      std::cerr << "Warning: " << e.what() << " Using default values." << std::endl;
+    }
+    
+    int num_of_duplicate = blas_config::Config::getInstance().getNumOfDuplicate();
 
     // Create routine dispatcher map for Level 3 routines
     std::unordered_map<std::string, RoutineHandler> level3_handlers = {
@@ -274,7 +283,7 @@ int main(int argc, char *argv[]) {
     }
     // std::cout<< result <<std::endl;
     try {
-      csv_file.Save(domain_file_name);//write file
+    csv_file.Save(domain_file_name);//write file
     } catch (const std::exception& e) {
       throw blas_exceptions::CSVException("save", "failed to save file '" + domain_file_name + "': " + e.what());
     }
@@ -344,7 +353,7 @@ int main(int argc, char *argv[]) {
     }
     // std::cout<< result <<std::endl;
     try {
-      csv_file.Save(domain_file_name);//write file
+    csv_file.Save(domain_file_name);//write file
     } catch (const std::exception& e) {
       throw blas_exceptions::CSVException("save", "failed to save file '" + domain_file_name + "': " + e.what());
     }
@@ -381,7 +390,7 @@ int main(int argc, char *argv[]) {
     }
     // std::cout<< result <<std::endl;
     try {
-      csv_file.Save(domain_file_name);//write file
+    csv_file.Save(domain_file_name);//write file
     } catch (const std::exception& e) {
       throw blas_exceptions::CSVException("save", "failed to save file '" + domain_file_name + "': " + e.what());
     }
@@ -418,7 +427,7 @@ int main(int argc, char *argv[]) {
     }
     // std::cout<< result <<std::endl;
     try {
-      csv_file.Save(domain_file_name);//write file
+    csv_file.Save(domain_file_name);//write file
     } catch (const std::exception& e) {
       throw blas_exceptions::CSVException("save", "failed to save file '" + domain_file_name + "': " + e.what());
     }
