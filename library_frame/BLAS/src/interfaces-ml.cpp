@@ -124,7 +124,7 @@ long long run_compare_gemm_impl(int m, int k, int n, bool useML, size_t num_of_d
     nt = predictor.model->predict_num_cores(m, k, n, routine_name);
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     std::cout << "Number of threads: " << nt << std::endl;
@@ -262,7 +262,7 @@ long long run_compare_symm_impl(int m, int n, bool useML, size_t num_of_duplicat
     nt = predictor.model->predict_num_cores(m, n, routine_name);
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     std::cout << "Number of threads: " << nt << std::endl;
@@ -387,7 +387,7 @@ long long run_compare_syrk_impl(int n, int k, bool useML, size_t num_of_duplicat
     nt = predictor.model->predict_num_cores(n, k, routine_name);
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     std::cout << "Number of threads: " << nt << std::endl;
@@ -532,7 +532,7 @@ long long run_compare_syr2k_impl(int n, int k, bool useML, size_t num_of_duplica
     nt = predictor.model->predict_num_cores(n, k, routine_name);
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     std::cout << "Number of threads: " << nt << std::endl;
@@ -663,7 +663,7 @@ long long run_compare_trmm_impl(int m, int n, bool useML, size_t num_of_duplicat
     nt = predictor.model->predict_num_cores(m, n, routine_name);
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     std::cout << "Number of threads: " << nt << std::endl;
@@ -786,7 +786,7 @@ long long run_compare_trsm_impl(int m, int n, bool useML, size_t num_of_duplicat
     nt = predictor.model->predict_num_cores(m, n, routine_name);
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     std::cout << "Number of threads: " << nt << std::endl;
@@ -942,7 +942,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
       nt = predictor.model->predict_num_cores(m, n, "dtrmm");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1075,7 +1075,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
       nt = predictor.model->predict_num_cores(m, n, "strmm");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1204,7 +1204,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
       nt = predictor.model->predict_num_cores(m, n, "dgemv");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1305,7 +1305,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
       nt = predictor.model->predict_num_cores(m, n, "sgemv");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1403,7 +1403,7 @@ long long test_class_ml::run_compare_syr_(int n, bool isDouble, bool useML, size
       nt = predictor.model->predict_num_cores(n, "dsyr");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1465,7 +1465,7 @@ long long test_class_ml::run_compare_syr_(int n, bool isDouble, bool useML, size
       nt = predictor.model->predict_num_cores(n, "ssyr");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1602,7 +1602,7 @@ long long test_class_ml::run_compare_trsv_(int n, bool isDouble, bool useML, siz
       nt = predictor.model->predict_num_cores(n, "dtrsv");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1751,7 +1751,7 @@ long long test_class_ml::run_compare_trsv_(int n, bool isDouble, bool useML, siz
       nt = predictor.model->predict_num_cores(n, "strsv");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1844,7 +1844,7 @@ long long test_class_ml::run_compare_dot_(int n, bool isDouble, bool useML, size
       nt = predictor.model->predict_num_cores(n, "ddot");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1902,7 +1902,7 @@ long long test_class_ml::run_compare_dot_(int n, bool isDouble, bool useML, size
       nt = predictor.model->predict_num_cores(n, "sdot");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -1995,7 +1995,7 @@ long long test_class_ml::run_compare_axpy_(int n, bool isDouble, bool useML, siz
       nt = predictor.model->predict_num_cores(n, "daxpy");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads
@@ -2056,7 +2056,7 @@ long long test_class_ml::run_compare_axpy_(int n, bool isDouble, bool useML, siz
       nt = predictor.model->predict_num_cores(n, "saxpy");
       omp_set_num_threads(nt);
     } else {
-      nt = max_num_threads;
+      nt = blas_config::Config::getInstance().getPredictorMaxThreads();
       omp_set_num_threads(nt);
     }
     // print out the number of threads

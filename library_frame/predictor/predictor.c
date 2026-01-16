@@ -14,29 +14,27 @@
 #include <math.h>
 #include "config-read.h"
 #include <time.h>
+#include "../../BLAS/include/blas_config_c.h"
 
 /**
  * @brief safe guard for xgboost related calls
- * 
+ * Returns error code instead of exiting
  */
-#define safe_xgboost(call) {                                            \
+#define safe_xgboost(call) ({                                           \
 int err = (call);                                                       \
 if (err != 0) {                                                         \
   fprintf(stderr, "%s:%d: error in %s: %s\n", __FILE__, __LINE__, #call, XGBGetLastError()); \
-  exit(1);                                                              \
 }                                                                       \
-}
+err;                                                                    \
+})
 
 /**
  * @brief maximum number of threads, feature numbers
- * 
+ * These are initialized from YAML config via blas_config_c.h
  */
-int max_num_threads = 48*2; // to be read from config file
-// const int max_num_threads = 128*2;
-int max_feature = 17; // to be read from config file
-int feature_num = 5; // to be read from config file
-// #define feature_num 5
-// #define max_feature 17
+int max_num_threads = 96; // Default, will be read from YAML config
+int max_feature = 17;     // Default, will be read from YAML config
+int feature_num = 5;      // Default, will be read from YAML config
 
 /**
  * @brief struct for info of data preprocessing
@@ -327,10 +325,11 @@ int load_config(char* config_name){ //NOTICE: double precision scale info is cut
 
   printf("config_name: %s\n", config_name);
 
-  // read max_num_threads, max_feature, feature_num
-  max_num_threads = (int)GetIniKeyInt("DEFAULT", "max_num_threads", config_name);
-  max_feature = (int)GetIniKeyInt("DEFAULT", "max_feature", config_name);
-  feature_num = (int)GetIniKeyInt("DEFAULT", "feature_num", config_name);
+  // Read max_num_threads, max_feature, feature_num from YAML config
+  // INI file values are ignored - use YAML config.yaml instead
+  max_num_threads = blas_config_get_predictor_max_threads();
+  max_feature = blas_config_get_max_feature();
+  feature_num = blas_config_get_feature_num();
 
   // printf("max_num_threads: %d\n", max_num_threads);
   // printf("max_feature: %d\n", max_feature);
@@ -422,17 +421,31 @@ int load_model(char* model_name){
 
   // load the data
   DMatrixHandle dtrain, dtest;
-  safe_xgboost(XGDMatrixCreateFromFile("./data/agaricus.txt.train", silent, &dtrain));
-  safe_xgboost(XGDMatrixCreateFromFile("./data/agaricus.txt.test", silent, &dtest));
+  int err;
+  if ((err = safe_xgboost(XGDMatrixCreateFromFile("./data/agaricus.txt.train", silent, &dtrain))) != 0) {
+    return err;
+  }
+  if ((err = safe_xgboost(XGDMatrixCreateFromFile("./data/agaricus.txt.test", silent, &dtest))) != 0) {
+    XGDMatrixFree(dtrain);
+    return err;
+  }
 
   // create the booster
   DMatrixHandle eval_dmats[2] = {dtrain, dtest};
-  safe_xgboost(XGBoosterCreate(eval_dmats, 2, &booster));
+  if ((err = safe_xgboost(XGBoosterCreate(eval_dmats, 2, &booster))) != 0) {
+    XGDMatrixFree(dtrain);
+    XGDMatrixFree(dtest);
+    return err;
+  }
 
   //Yufan: save model to file
   // safe_xgboost(XGBoosterSaveModel	(	booster, "model.model" ));
   //Yufan: load the model from file
-  safe_xgboost(XGBoosterLoadModel	(	booster, model_name ));
+  if ((err = safe_xgboost(XGBoosterLoadModel(booster, model_name))) != 0) {
+    XGDMatrixFree(dtrain);
+    XGDMatrixFree(dtest);
+    return err;
+  }
 
   // get feature num
   bst_ulong num_feature = 0;
@@ -473,8 +486,18 @@ typedef void (*ModelFunc)(float* data_input, int max_num_threads, int feature_nu
 void xgb_model(float* data_input, int max_num_threads, int feature_num, int* out_len, const float** out_result) {
   DMatrixHandle dmat;
   bst_ulong bst_out_len = 0;
-  safe_xgboost(XGDMatrixCreateFromMat(data_input, max_num_threads, feature_num, 0.0, &dmat));
-  safe_xgboost(XGBoosterPredict(booster, dmat, 0, 0, 0, &bst_out_len, out_result));
+  int err;
+  if ((err = safe_xgboost(XGDMatrixCreateFromMat(data_input, max_num_threads, feature_num, 0.0, &dmat))) != 0) {
+    *out_len = 0;
+    *out_result = NULL;
+    return;
+  }
+  if ((err = safe_xgboost(XGBoosterPredict(booster, dmat, 0, 0, 0, &bst_out_len, out_result))) != 0) {
+    XGDMatrixFree(dmat);
+    *out_len = 0;
+    *out_result = NULL;
+    return;
+  }
   safe_xgboost(XGDMatrixFree(dmat));
   *out_len = (int)(bst_out_len); // convert bst_ulong to int
 }

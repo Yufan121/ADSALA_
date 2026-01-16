@@ -47,6 +47,7 @@ add_library(${PROJECT_NAME} SHARED #${SOURCE_FILES}
                 # ${PROJECT_SOURCE_DIR}/src/get-ncores.cpp
                 ${PROJECT_SOURCE_DIR}/src/interfaces-ml.cpp
                 ${PROJECT_SOURCE_DIR}/src/blas_config.cpp
+                ${PROJECT_SOURCE_DIR}/src/blas_config_c.cpp
                 # ${PROJECT_SOURCE_DIR}/src/library-manager.cpp
                 # ${PROJECT_SOURCE_DIR}/src/MKL-context.cpp
                 )

@@ -21,6 +21,9 @@ Config::Config() {
 void Config::loadDefaults() {
     num_threads_ = 24;
     num_of_duplicate_ = 10;
+    predictor_max_threads_ = 96;
+    max_feature_ = 17;
+    feature_num_ = 5;
     default_config_path_ = "config.yaml";
 }
 
@@ -104,6 +107,53 @@ void Config::parseYAML(const std::string& yaml_content) {
         } catch (const YAML::BadConversion& e) {
             throw blas_exceptions::ConfigurationException(
                 "Invalid num_of_duplicate value: must be an integer");
+        }
+    }
+
+    // Parse predictor settings
+    if (config["predictor"]) {
+        auto predictor = config["predictor"];
+        
+        if (predictor["max_num_threads"]) {
+            try {
+                int threads = predictor["max_num_threads"].as<int>();
+                if (threads < 1 || threads > 1024) {
+                    throw blas_exceptions::ConfigurationException(
+                        "predictor.max_num_threads must be between 1 and 1024");
+                }
+                predictor_max_threads_ = threads;
+            } catch (const YAML::BadConversion& e) {
+                throw blas_exceptions::ConfigurationException(
+                    "Invalid predictor.max_num_threads value: must be an integer");
+            }
+        }
+        
+        if (predictor["max_feature"]) {
+            try {
+                int features = predictor["max_feature"].as<int>();
+                if (features < 1 || features > 100) {
+                    throw blas_exceptions::ConfigurationException(
+                        "predictor.max_feature must be between 1 and 100");
+                }
+                max_feature_ = features;
+            } catch (const YAML::BadConversion& e) {
+                throw blas_exceptions::ConfigurationException(
+                    "Invalid predictor.max_feature value: must be an integer");
+            }
+        }
+        
+        if (predictor["feature_num"]) {
+            try {
+                int features = predictor["feature_num"].as<int>();
+                if (features < 1 || features > 100) {
+                    throw blas_exceptions::ConfigurationException(
+                        "predictor.feature_num must be between 1 and 100");
+                }
+                feature_num_ = features;
+            } catch (const YAML::BadConversion& e) {
+                throw blas_exceptions::ConfigurationException(
+                    "Invalid predictor.feature_num value: must be an integer");
+            }
         }
     }
 #else

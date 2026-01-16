@@ -71,6 +71,24 @@ public:
     void setDefaultConfigPath(const std::string& path) { default_config_path_ = path; }
 
     /**
+     * @brief Get maximum number of threads for predictor
+     * @return Maximum threads (default: 96)
+     */
+    int getPredictorMaxThreads() const { return predictor_max_threads_; }
+
+    /**
+     * @brief Get maximum number of features
+     * @return Maximum features (default: 17)
+     */
+    int getMaxFeature() const { return max_feature_; }
+
+    /**
+     * @brief Get number of features used
+     * @return Number of features (default: 5)
+     */
+    int getFeatureNum() const { return feature_num_; }
+
+    /**
      * @brief Reset configuration to defaults
      */
     void reset();
@@ -86,6 +104,9 @@ private:
 
     int num_threads_;
     int num_of_duplicate_;
+    int predictor_max_threads_;
+    int max_feature_;
+    int feature_num_;
     std::string default_config_path_;
 };
 
