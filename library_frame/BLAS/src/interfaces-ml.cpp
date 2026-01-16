@@ -309,582 +309,533 @@ long long test_class_ml::run_compare_symm_(int m, int n, bool isDouble, bool use
   }
 }
 
+// Template implementation for SYRK
+template<typename T>
+long long run_compare_syrk_impl(int n, int k, bool useML, size_t num_of_duplicate, test_class* lib) {
+  std::chrono::high_resolution_clock::time_point t1, t2;
+  int64_t time;
+  std::chrono::high_resolution_clock::time_point t_1, t_2, t_3, t_4, t_5;
+  int64_t time1, time2, time3, time4;
+
+  std::vector<long long> time_vect;
+  time_vect.reserve(num_of_duplicate);
+
+  t_1 = std::chrono::high_resolution_clock::now();
+
+  std::vector<T> A(static_cast<size_t>(num_of_duplicate) * n * k);
+  std::vector<T> C(static_cast<size_t>(num_of_duplicate) * n * n);
+
+  std::cout << "Trying to alloc GB:" << std::endl;
+  std::cout << (((unsigned long long)n)*n + n*k)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
+  if (A.empty() || C.empty()) {
+    std::cout << "Trying to alloc:" << std::endl;
+    std::cout << static_cast<size_t>(num_of_duplicate)*n*n*sizeof(T) << std::endl;
+    std::cout << "Allocation error." << std::endl;
+  }
+
+  t_2 = std::chrono::high_resolution_clock::now();
+
+  // fill A
+  pthread_t threads[NUM_THREADS];
+  int rc;
+  int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*n*k / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = A.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+
+  // fill C
+  stride = static_cast<size_t>(num_of_duplicate)*n*n / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = C.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*n;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+
+  t_3 = std::chrono::high_resolution_clock::now();
+
+  std::string routine_name = std::string(get_blas_prefix<T>()) + "syrk";
+  Predictor predictor("xgb", routine_name);
+  int nt;
+  if (useML) {
+    nt = predictor.model->predict_num_cores(n, k, routine_name);
+    omp_set_num_threads(nt);
+  } else {
+    nt = max_num_threads;
+    omp_set_num_threads(nt);
+  }
+  std::cout << "Number of threads: " << nt << std::endl;
+
+  for (int i = 0; i < num_of_duplicate; i++) {
+    t1 = std::chrono::high_resolution_clock::now();
+    if constexpr (std::is_same_v<T, double>) {
+      lib->dsyrk(n, k, 1.0, &A[static_cast<size_t>(i)*n*k], 0.0, &C[static_cast<size_t>(i)*n*n]);
+    } else {
+      lib->ssyrk(n, k, 1.0f, &A[static_cast<size_t>(i)*n*k], 0.0f, &C[static_cast<size_t>(i)*n*n]);
+    }
+    t2 = std::chrono::high_resolution_clock::now();
+    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+    time_vect.push_back(time);
+  }
+
+  t_4 = std::chrono::high_resolution_clock::now();
+  t_5 = std::chrono::high_resolution_clock::now();
+
+  time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
+  time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
+  time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
+  time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
+
+  std::cout << "time1~time4:" << std::endl;
+  std::cout << time1 << std::endl;
+  std::cout << time2 << std::endl;
+  std::cout << time3 << std::endl;
+  std::cout << time4 << std::endl;
+  std::cout << "End: time1~time4:" << std::endl;
+
+  long long sum = 0;
+  for (size_t i = 0; i < time_vect.size(); i++) {
+    sum += time_vect[i];
+  }
+  return sum / time_vect.size();
+}
 
 long long test_class_ml::run_compare_syrk_(int n, int k, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
+  if (isDouble) {
+    return run_compare_syrk_impl<double>(n, k, useML, num_of_duplicate, lib);
+  } else {
+    return run_compare_syrk_impl<float>(n, k, useML, num_of_duplicate, lib);
+  }
+}
 
-  // C = alpha * A * A.T + beta * C
-  // A is n x k
-  // C is n x n
-
-  std::chrono::high_resolution_clock::time_point t1,t2;
+// Template implementation for SYR2K
+template<typename T>
+long long run_compare_syr2k_impl(int n, int k, bool useML, size_t num_of_duplicate, test_class* lib) {
+  std::chrono::high_resolution_clock::time_point t1, t2;
   int64_t time;
-  std::chrono::high_resolution_clock::time_point t_1,t_2,t_3,t_4,t_5;
-  int64_t time1,time2,time3,time4;
+  std::chrono::high_resolution_clock::time_point t_1, t_2, t_3, t_4, t_5;
+  int64_t time1, time2, time3, time4;
 
-  std::vector<long long> time_vect;//vector to store iterations' time value
+  std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  if (isDouble) {// DOUBLE
+  t_1 = std::chrono::high_resolution_clock::now();
 
-    t_1 = std::chrono::high_resolution_clock::now(); 
+  std::vector<T> A(static_cast<size_t>(num_of_duplicate) * n * k);
+  std::vector<T> B(static_cast<size_t>(num_of_duplicate) * n * k);
+  std::vector<T> C(static_cast<size_t>(num_of_duplicate) * n * n);
 
-    //assign space using std::vector for automatic memory management
-    std::vector<double> A(static_cast<size_t>(num_of_duplicate) * n * k);
-    std::vector<double> C(static_cast<size_t>(num_of_duplicate) * n * n);
-
-
-    std::cout << "Trying to alloc GB:" << std::endl;  
-    std::cout << (((unsigned long long)n)*n + n*k)*sizeof(double) * num_of_duplicate / 1e9 << std::endl;
-    if (A.empty() || C.empty()) {
-      std::cout << "Trying to alloc:" << std::endl;  
-      std::cout << static_cast <size_t>(num_of_duplicate)*n*n*sizeof(double) << std::endl;  
-      std::cout << "Allocation error." << std::endl;  
-    }
-
-
-    t_2 = std::chrono::high_resolution_clock::now(); 
-
-    // fill matrices with random numbers
-    // pthread
-    // fill A 
-    pthread_t threads[NUM_THREADS];
-    int rc;
-    int i;
-    size_t stride = static_cast <size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = A.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*k;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-
-
-    // fill C
-    // pthread_t threads[NUM_THREADS];
-    // int rc;
-    // int i;
-    stride = static_cast <size_t>(num_of_duplicate)*n*n / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = C.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*n;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-    
-    
-    t_3 = std::chrono::high_resolution_clock::now(); 
-  
-
-    // this->set_num_threads(nt);
-    // Use predictor to set threads
-    Predictor predictor("xgb", "dsyrk");
-    int nt;
-    if (useML) {
-      // nt = get_optimum_num_cores(m,k,n);
-      nt = predictor.model->predict_num_cores(n, k, "dsyrk");
-      omp_set_num_threads(nt);
-    } else {
-      nt = max_num_threads;
-      omp_set_num_threads(nt);
-    }
-    // print out the number of threads
-    std::cout << "Number of threads: " << nt << std::endl;
-
-    for(int i=0; i < num_of_duplicate; i++){
-      t1 = std::chrono::high_resolution_clock::now(); 
-
-      lib->dsyrk(n,k,1.0,&A[static_cast <size_t>(i)*n*k],0.0,&C[static_cast <size_t>(i)*n*n]);//strided matrix array input
-
-      t2 = std::chrono::high_resolution_clock::now();
-      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-      time_vect.push_back(time);
-    }
-
-    t_4 = std::chrono::high_resolution_clock::now(); 
-
-    // Memory automatically freed when vectors go out of scope
-
-    t_5 = std::chrono::high_resolution_clock::now(); 
-
-
-  } else { //FLOAT
-
-    t_1 = std::chrono::high_resolution_clock::now(); 
-
-    //assign space using std::vector for automatic memory management
-    std::vector<float> A(static_cast<size_t>(num_of_duplicate) * n * k);
-    std::vector<float> C(static_cast<size_t>(num_of_duplicate) * n * n);
-
-    std::cout << "Trying to alloc GB:" << std::endl;  
-    std::cout << (((unsigned long long)n)*n + n*k)*sizeof(float) * num_of_duplicate / 1e9 << std::endl;
-    if (A.empty() || C.empty()) {
-      std::cout << "Trying to alloc:" << std::endl;  
-      std::cout << static_cast <size_t>(num_of_duplicate)*n*n*sizeof(float) << std::endl;
-      std::cout << "Allocation error." << std::endl;  
-    }
-
-    t_2 = std::chrono::high_resolution_clock::now(); 
-
-    // fill matrices with random numbers
-    // pthread
-    // fill A 
-    pthread_t threads[NUM_THREADS];
-    int rc;
-    int i;
-    size_t stride = static_cast <size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = A.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'f'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*k;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-
-
-    // fill C
-    stride = static_cast <size_t>(num_of_duplicate)*n*n / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = C.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'f'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*n;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-    
-    t_3 = std::chrono::high_resolution_clock::now(); 
-  
-
-    // this->set_num_threads(nt);
-    // Use predictor to set threads
-    Predictor predictor("xgb", "ssyrk");
-    int nt;
-    if (useML) {
-      // nt = get_optimum_num_cores(m,k,n);
-      nt = predictor.model->predict_num_cores(n, k, "ssyrk");
-      omp_set_num_threads(nt);
-    } else {
-      nt = max_num_threads;
-      omp_set_num_threads(nt);
-    }
-    // print out the number of threads
-    std::cout << "Number of threads: " << nt << std::endl;
-
-
-    for(int i=0; i < num_of_duplicate; i++){
-      t1 = std::chrono::high_resolution_clock::now(); 
-
-      lib->ssyrk(n,k,1.0,&A[static_cast <size_t>(i)*n*k],0.0,&C[static_cast <size_t>(i)*n*n]);//strided matrix array input
-
-      t2 = std::chrono::high_resolution_clock::now();
-      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-      time_vect.push_back(time);
-    }
-
-    t_4 = std::chrono::high_resolution_clock::now(); 
-
-    // Memory automatically freed when vectors go out of scope
-
-    t_5 = std::chrono::high_resolution_clock::now(); 
-
-
-
+  std::cout << "Trying to alloc GB:" << std::endl;
+  std::cout << (((unsigned long long)n)*n + 2*n*k)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
+  if (A.empty() || C.empty()) {
+    std::cout << "Trying to alloc:" << std::endl;
+    std::cout << static_cast<size_t>(num_of_duplicate)*n*n*sizeof(T) << std::endl;
+    std::cout << "Allocation error." << std::endl;
   }
 
+  t_2 = std::chrono::high_resolution_clock::now();
+
+  // fill A
+  pthread_t threads[NUM_THREADS];
+  int rc;
+  int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*n*k / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = A.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+
+  // fill B
+  stride = static_cast<size_t>(num_of_duplicate)*n*k / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = B.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*k;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+
+  // fill C
+  stride = static_cast<size_t>(num_of_duplicate)*n*n / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = C.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*n*n;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+
+  t_3 = std::chrono::high_resolution_clock::now();
+
+  std::string routine_name = std::string(get_blas_prefix<T>()) + "syr2k";
+  Predictor predictor("xgb", routine_name);
+  int nt;
+  if (useML) {
+    nt = predictor.model->predict_num_cores(n, k, routine_name);
+    omp_set_num_threads(nt);
+  } else {
+    nt = max_num_threads;
+    omp_set_num_threads(nt);
+  }
+  std::cout << "Number of threads: " << nt << std::endl;
+
+  for (int i = 0; i < num_of_duplicate; i++) {
+    t1 = std::chrono::high_resolution_clock::now();
+    if constexpr (std::is_same_v<T, double>) {
+      lib->dsyr2k(n, k, 1.0, &A[static_cast<size_t>(i)*n*k], &B[static_cast<size_t>(i)*n*k], 0.0, &C[static_cast<size_t>(i)*n*n]);
+    } else {
+      lib->ssyr2k(n, k, 1.0f, &A[static_cast<size_t>(i)*n*k], &B[static_cast<size_t>(i)*n*k], 0.0f, &C[static_cast<size_t>(i)*n*n]);
+    }
+    t2 = std::chrono::high_resolution_clock::now();
+    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+    time_vect.push_back(time);
+  }
+
+  t_4 = std::chrono::high_resolution_clock::now();
+  t_5 = std::chrono::high_resolution_clock::now();
 
   time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
   time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
   time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
   time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
 
-  std::cout << "time1~time4:" << std::endl; 
-  std::cout << time1 << std::endl;  
-  std::cout << time2 << std::endl;  
-  std::cout << time3 << std::endl;  
-  std::cout << time4 << std::endl;  
-  std::cout << "End: time1~time4:" << std::endl;  
+  std::cout << "time1~time4:" << std::endl;
+  std::cout << time1 << std::endl;
+  std::cout << time2 << std::endl;
+  std::cout << time3 << std::endl;
+  std::cout << time4 << std::endl;
+  std::cout << "End: time1~time4:" << std::endl;
 
-
-  // return average of time_vect
   long long sum = 0;
-  for (int i = 0; i < time_vect.size(); i++) {
+  for (size_t i = 0; i < time_vect.size(); i++) {
     sum += time_vect[i];
   }
   return sum / time_vect.size();
 }
-
 
 long long test_class_ml::run_compare_syr2k_(int n, int k, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
+  if (isDouble) {
+    return run_compare_syr2k_impl<double>(n, k, useML, num_of_duplicate, lib);
+  } else {
+    return run_compare_syr2k_impl<float>(n, k, useML, num_of_duplicate, lib);
+  }
+}
 
-  // C = alpha * A * B.T + alpha * B * A.T + beta * C
-  // A, B are n x k
-  // C is n x n
-
-  std::chrono::high_resolution_clock::time_point t1,t2;
+// Template implementation for TRMM
+template<typename T>
+long long run_compare_trmm_impl(int m, int n, bool useML, size_t num_of_duplicate, test_class* lib) {
+  std::chrono::high_resolution_clock::time_point t1, t2;
   int64_t time;
-  std::chrono::high_resolution_clock::time_point t_1,t_2,t_3,t_4,t_5;
-  int64_t time1,time2,time3,time4;
+  std::chrono::high_resolution_clock::time_point t_1, t_2, t_3, t_4, t_5;
+  int64_t time1, time2, time3, time4;
 
-  std::vector<long long> time_vect;//vector to store iterations' time value
+  std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  if (isDouble) {// DOUBLE
+  t_1 = std::chrono::high_resolution_clock::now();
 
-    t_1 = std::chrono::high_resolution_clock::now(); 
+  std::vector<T> A(static_cast<size_t>(num_of_duplicate) * m * m);
+  std::vector<T> B(static_cast<size_t>(num_of_duplicate) * m * n);
 
-    //assign space using std::vector for automatic memory management
-    std::vector<double> A(static_cast<size_t>(num_of_duplicate) * n * k);
-    std::vector<double> B(static_cast<size_t>(num_of_duplicate) * n * k);
-    std::vector<double> C(static_cast<size_t>(num_of_duplicate) * n * n);
-
-
-    std::cout << "Trying to alloc GB:" << std::endl;  
-    std::cout << (((unsigned long long)n)*n + 2*n*k)*sizeof(double) * num_of_duplicate / 1e9 << std::endl;
-    if (A.empty() || C.empty()) {
-      std::cout << "Trying to alloc:" << std::endl;  
-      std::cout << static_cast <size_t>(num_of_duplicate)*n*n*sizeof(double) << std::endl;  
-      std::cout << "Allocation error." << std::endl;  
-    }
-
-
-    t_2 = std::chrono::high_resolution_clock::now(); 
-
-    // fill matrices with random numbers
-    // pthread
-    // fill A 
-    pthread_t threads[NUM_THREADS];
-    int rc;
-    int i;
-    size_t stride = static_cast <size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = A.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*k;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-
-    // fill matrices with random numbers
-    // pthread
-    // fill B
-    stride = static_cast <size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = B.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*k;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-
-    // fill C
-    stride = static_cast <size_t>(num_of_duplicate)*n*n / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = C.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*n;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-
-    
-    
-    t_3 = std::chrono::high_resolution_clock::now(); 
-  
-
-    // this->set_num_threads(nt);
-    // Use predictor to set threads
-    Predictor predictor("xgb", "dsyr2k");
-    int nt;
-    if (useML) {
-      // nt = get_optimum_num_cores(m,k,n);
-      nt = predictor.model->predict_num_cores(n, k, "dsyr2k");
-      omp_set_num_threads(nt);
-    } else {
-      nt = max_num_threads;
-      omp_set_num_threads(nt);
-    }
-    // print out the number of threads
-    std::cout << "Number of threads: " << nt << std::endl;
-
-    for(int i=0; i < num_of_duplicate; i++){
-      t1 = std::chrono::high_resolution_clock::now(); 
-
-      lib->dsyr2k(n,k,1.0,&A[static_cast <size_t>(i)*n*k],&B[static_cast <size_t>(i)*n*k],0.0,&C[static_cast <size_t>(i)*n*n]);//strided matrix array input
-
-      t2 = std::chrono::high_resolution_clock::now();
-      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-      time_vect.push_back(time);
-    }
-
-    t_4 = std::chrono::high_resolution_clock::now(); 
-
-    // Memory automatically freed when vectors go out of scope
-
-    t_5 = std::chrono::high_resolution_clock::now(); 
-
-
-  } else { //FLOAT
-
-    t_1 = std::chrono::high_resolution_clock::now(); 
-
-    //assign space using std::vector for automatic memory management
-    std::vector<float> A(static_cast<size_t>(num_of_duplicate) * n * k);
-    std::vector<float> B(static_cast<size_t>(num_of_duplicate) * n * k);
-    std::vector<float> C(static_cast<size_t>(num_of_duplicate) * n * n);
-
-    std::cout << "Trying to alloc GB:" << std::endl;  
-    std::cout << (((unsigned long long)n)*n + 2*n*k)*sizeof(float) * num_of_duplicate / 1e9 << std::endl;
-    if (A.empty() || C.empty()) {
-      std::cout << "Trying to alloc:" << std::endl;  
-      std::cout << static_cast <size_t>(num_of_duplicate)*n*n*sizeof(float) << std::endl;
-      std::cout << "Allocation error." << std::endl;  
-    }
-
-    t_2 = std::chrono::high_resolution_clock::now(); 
-
-    // fill matrices with random numbers
-    // pthread
-    // fill A 
-    pthread_t threads[NUM_THREADS];
-    int rc;
-    int i;
-    size_t stride = static_cast <size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = A.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'f'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*k;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-    // fill matrices with random numbers
-    // pthread
-    // fill B
-    stride = static_cast <size_t>(num_of_duplicate)*n*k / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = B.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'f'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*k;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-
-
-    // fill C
-    stride = static_cast <size_t>(num_of_duplicate)*n*n / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = C.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'f'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*n*n;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-    
-    t_3 = std::chrono::high_resolution_clock::now(); 
-  
-
-    // this->set_num_threads(nt);
-    // Use predictor to set threads
-    Predictor predictor("xgb", "ssyr2k");
-    int nt;
-    if (useML) {
-      // nt = get_optimum_num_cores(m,k,n);
-      nt = predictor.model->predict_num_cores(n, k, "ssyr2k");
-      omp_set_num_threads(nt);
-    } else {
-      nt = max_num_threads;
-      omp_set_num_threads(nt);
-    }
-    // print out the number of threads
-    std::cout << "Number of threads: " << nt << std::endl;
-
-
-    for(int i=0; i < num_of_duplicate; i++){
-      t1 = std::chrono::high_resolution_clock::now(); 
-
-      lib->ssyr2k(n,k,1.0,&A[static_cast <size_t>(i)*n*k],&B[static_cast <size_t>(i)*n*k],0.0,&C[static_cast <size_t>(i)*n*n]);//strided matrix array input
-
-      t2 = std::chrono::high_resolution_clock::now();
-      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-      time_vect.push_back(time);
-    }
-
-    t_4 = std::chrono::high_resolution_clock::now(); 
-
-    // Memory automatically freed when vectors go out of scope
-
-    t_5 = std::chrono::high_resolution_clock::now(); 
-
-
-
+  std::cout << "Trying to alloc GB:" << std::endl;
+  std::cout << (((unsigned long long)m)*m + m*n)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
+  if (A.empty() || B.empty()) {
+    std::cout << "Trying to alloc:" << std::endl;
+    std::cout << static_cast<size_t>(num_of_duplicate)*m*m*sizeof(T) << std::endl;
+    std::cout << "Allocation error." << std::endl;
   }
 
+  t_2 = std::chrono::high_resolution_clock::now();
+
+  // fill A (triangular)
+  pthread_t threads[NUM_THREADS];
+  int rc;
+  int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*m*m / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = A.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*m;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+  // make A upper triangular
+  for (int row = 0; row < m; row++) {
+    for (int col = 0; col < row; col++) {
+      A[row*m + col] = T(0.0);
+    }
+  }
+
+  // fill B
+  stride = static_cast<size_t>(num_of_duplicate)*m*n / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = B.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*n;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+
+  t_3 = std::chrono::high_resolution_clock::now();
+
+  std::string routine_name = std::string(get_blas_prefix<T>()) + "trmm";
+  Predictor predictor("xgb", routine_name);
+  int nt;
+  if (useML) {
+    nt = predictor.model->predict_num_cores(m, n, routine_name);
+    omp_set_num_threads(nt);
+  } else {
+    nt = max_num_threads;
+    omp_set_num_threads(nt);
+  }
+  std::cout << "Number of threads: " << nt << std::endl;
+
+  for (int i = 0; i < num_of_duplicate; i++) {
+    t1 = std::chrono::high_resolution_clock::now();
+    if constexpr (std::is_same_v<T, double>) {
+      lib->dtrmm(m, n, 1.0, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n]);
+    } else {
+      lib->strmm(m, n, 1.0f, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n]);
+    }
+    t2 = std::chrono::high_resolution_clock::now();
+    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+    time_vect.push_back(time);
+  }
+
+  t_4 = std::chrono::high_resolution_clock::now();
+  t_5 = std::chrono::high_resolution_clock::now();
 
   time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
   time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
   time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
   time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
 
-  std::cout << "time1~time4:" << std::endl; 
-  std::cout << time1 << std::endl;  
-  std::cout << time2 << std::endl;  
-  std::cout << time3 << std::endl;  
-  std::cout << time4 << std::endl;  
-  std::cout << "End: time1~time4:" << std::endl;  
+  std::cout << "time1~time4:" << std::endl;
+  std::cout << time1 << std::endl;
+  std::cout << time2 << std::endl;
+  std::cout << time3 << std::endl;
+  std::cout << time4 << std::endl;
+  std::cout << "End: time1~time4:" << std::endl;
 
-
-  // return average of time_vect
   long long sum = 0;
-  for (int i = 0; i < time_vect.size(); i++) {
+  for (size_t i = 0; i < time_vect.size(); i++) {
     sum += time_vect[i];
   }
   return sum / time_vect.size();
 }
 
-
-
-// std::vector<long long> test_syrk(int n, int k, int nt, bool isDouble, int num_of_duplicate);
-// std::vector<long long> test_syr2k(int n, int k, int nt, bool isDouble, int num_of_duplicate);
-// std::vector<long long> test_trmm(int m, int n, int nt, bool isDouble, int num_of_duplicate);
-// std::vector<long long> test_trsm(int m, int n, int nt, bool isDouble, int num_of_duplicate);
-
-long long test_class_ml::run_compare_trmm_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
-
-  // B = alpha * A * B
-  // A is m x m ?
-  // B is m x n
-
-  std::chrono::high_resolution_clock::time_point t1,t2;
+// Template implementation for TRSM
+template<typename T>
+long long run_compare_trsm_impl(int m, int n, bool useML, size_t num_of_duplicate, test_class* lib) {
+  std::chrono::high_resolution_clock::time_point t1, t2;
   int64_t time;
-  std::chrono::high_resolution_clock::time_point t_1,t_2,t_3,t_4,t_5;
-  int64_t time1,time2,time3,time4;
+  std::chrono::high_resolution_clock::time_point t_1, t_2, t_3, t_4, t_5;
+  int64_t time1, time2, time3, time4;
 
-  std::vector<long long> time_vect;//vector to store iterations' time value
+  std::vector<long long> time_vect;
   time_vect.reserve(num_of_duplicate);
 
-  if (isDouble) {// DOUBLE
+  t_1 = std::chrono::high_resolution_clock::now();
 
-    t_1 = std::chrono::high_resolution_clock::now(); 
+  std::vector<T> A(static_cast<size_t>(num_of_duplicate) * m * m);
+  std::vector<T> B(static_cast<size_t>(num_of_duplicate) * m * n);
+
+  std::cout << "Trying to alloc GB:" << std::endl;
+  std::cout << (((unsigned long long)m)*m + m*n)*sizeof(T) * num_of_duplicate / 1e9 << std::endl;
+  if (A.empty() || B.empty()) {
+    std::cout << "Trying to alloc:" << std::endl;
+    std::cout << static_cast<size_t>(num_of_duplicate)*m*m*sizeof(T) << std::endl;
+    std::cout << "Allocation error." << std::endl;
+  }
+
+  t_2 = std::chrono::high_resolution_clock::now();
+
+  // fill A (triangular)
+  pthread_t threads[NUM_THREADS];
+  int rc;
+  int i;
+  size_t stride = static_cast<size_t>(num_of_duplicate)*m*m / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = A.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*m;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+  // make A upper triangular
+  for (int row = 0; row < m; row++) {
+    for (int col = 0; col < row; col++) {
+      A[row*m + col] = T(0.0);
+    }
+  }
+
+  // fill B
+  stride = static_cast<size_t>(num_of_duplicate)*m*n / NUM_THREADS;
+  for (i = 0; i < NUM_THREADS; i++) {
+    struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
+    arg_ptr->M = B.data();
+    arg_ptr->start = i * stride;
+    arg_ptr->type = get_type_char<T>();
+    if (i == NUM_THREADS - 1) arg_ptr->end = static_cast<size_t>(num_of_duplicate)*m*n;
+    else arg_ptr->end = (i+1) * stride;
+    arg_ptr->seed = i;
+    rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
+    if (rc) {
+      std::cout << "Error:unable to create thread," << rc << std::endl;
+      exit(-1);
+    }
+  }
+  for (i = 0; i < NUM_THREADS; i++) {
+    rc = pthread_join(threads[i], NULL);
+  }
+
+  t_3 = std::chrono::high_resolution_clock::now();
+
+  std::string routine_name = std::string(get_blas_prefix<T>()) + "trsm";
+  Predictor predictor("xgb", routine_name);
+  int nt;
+  if (useML) {
+    nt = predictor.model->predict_num_cores(m, n, routine_name);
+    omp_set_num_threads(nt);
+  } else {
+    nt = max_num_threads;
+    omp_set_num_threads(nt);
+  }
+  std::cout << "Number of threads: " << nt << std::endl;
+
+  for (int i = 0; i < num_of_duplicate; i++) {
+    t1 = std::chrono::high_resolution_clock::now();
+    if constexpr (std::is_same_v<T, double>) {
+      lib->dtrsm(m, n, 1.0, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n]);
+    } else {
+      lib->strsm(m, n, 1.0f, &A[static_cast<size_t>(i)*m*m], &B[static_cast<size_t>(i)*m*n]);
+    }
+    t2 = std::chrono::high_resolution_clock::now();
+    time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
+    time_vect.push_back(time);
+  }
+
+  t_4 = std::chrono::high_resolution_clock::now();
+  t_5 = std::chrono::high_resolution_clock::now();
+
+  time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
+  time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
+  time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
+  time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
+
+  std::cout << "time1~time4:" << std::endl;
+  std::cout << time1 << std::endl;
+  std::cout << time2 << std::endl;
+  std::cout << time3 << std::endl;
+  std::cout << time4 << std::endl;
+  std::cout << "End: time1~time4:" << std::endl;
+
+  long long sum = 0;
+  for (size_t i = 0; i < time_vect.size(); i++) {
+    sum += time_vect[i];
+  }
+  return sum / time_vect.size();
+}
+
+long long test_class_ml::run_compare_trmm_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
+  if (isDouble) {
+    return run_compare_trmm_impl<double>(m, n, useML, num_of_duplicate, lib);
+  } else {
+    return run_compare_trmm_impl<float>(m, n, useML, num_of_duplicate, lib);
+  }
+}
+
+
+long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) { 
 
     //assign space using std::vector for automatic memory management
     std::vector<double> A(static_cast<size_t>(num_of_duplicate) * m * m);
@@ -1182,320 +1133,20 @@ long long test_class_ml::run_compare_trmm_(int m, int n, bool isDouble, bool use
 // std::vector<long long> test_trsm(int m, int n, int nt, bool isDouble, int num_of_duplicate);
 
 long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
-
-  // B = alpha * A * B
-  // A is m x m ?
-  // B is m x n
-
-  std::chrono::high_resolution_clock::time_point t1,t2;
-  int64_t time;
-  std::chrono::high_resolution_clock::time_point t_1,t_2,t_3,t_4,t_5;
-  int64_t time1,time2,time3,time4;
-
-  std::vector<long long> time_vect;//vector to store iterations' time value
-  time_vect.reserve(num_of_duplicate);
-
-  if (isDouble) {// DOUBLE
-
-    t_1 = std::chrono::high_resolution_clock::now(); 
-
-    //assign space using std::vector for automatic memory management
-    std::vector<double> A(static_cast<size_t>(num_of_duplicate) * m * m);
-    std::vector<double> B(static_cast<size_t>(num_of_duplicate) * m * n);
-
-
-    std::cout << "Trying to alloc GB:" << std::endl;  
-    std::cout << (((unsigned long long)m)*m + m*n)*sizeof(double) * num_of_duplicate / 1e9 << std::endl;
-    if (A.empty() || B.empty()) {
-      std::cout << "Trying to alloc:" << std::endl;  
-      std::cout << static_cast <size_t>(num_of_duplicate)*m*m*sizeof(double) << std::endl;  
-      std::cout << "Allocation error." << std::endl;  
-    }
-
-
-    t_2 = std::chrono::high_resolution_clock::now(); 
-
-    // fill matrices with random numbers
-    // pthread
-    // fill A (triangular)
-    pthread_t threads[NUM_THREADS];
-    int rc;
-    int i;
-    size_t stride = static_cast <size_t>(num_of_duplicate)*m*m / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = A.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*m;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-    // make A upper triangular
-    for (int row = 0; row < m; row++) {
-        for (int col = 0; col < row; col++) {
-            A[row*m + col] = 0.0;
-        }
-    }
-
-
-#ifdef DEBUG
-
-    // display in matrix format
-    std::cout << "A:" << std::endl;
-    for (int row = 0; row < m; row++) {
-        for (int col = 0; col < m; col++) {
-            std::cout << A[row*m + col] << " ";
-        }
-        std::cout << std::endl;
-    }
-    
-    // check whether A is symmetric
-    bool is_symmetric = true;
-    for (int row = 0; row < m; row++) {
-        for (int col = 0; col < row; col++) {
-            if (A[row*m + col] != A[col*m + row]) {
-                is_symmetric = false;
-                break;
-            }
-        }
-        if (!is_symmetric) break;
-    }
-#endif
-
-    // fill B
-    stride = static_cast <size_t>(num_of_duplicate)*m*n / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = B.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'd'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*n;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-
-    
-    
-    t_3 = std::chrono::high_resolution_clock::now(); 
-  
-
-    // this->set_num_threads(nt);
-    // Use predictor to set threads
-    Predictor predictor("xgb", "dtrsm");
-    int nt;
-    if (useML) {
-      // nt = get_optimum_num_cores(m,k,n);
-      nt = predictor.model->predict_num_cores(m, n, "dtrsm");
-      omp_set_num_threads(nt);
-    } else {
-      nt = max_num_threads;
-      omp_set_num_threads(nt);
-    }
-    // print out the number of threads
-    std::cout << "Number of threads: " << nt << std::endl;
-
-    for(int i=0; i < num_of_duplicate; i++){
-      t1 = std::chrono::high_resolution_clock::now(); 
-
-      lib->dtrsm(m,n,1.0,&A[static_cast <size_t>(i)*m*m],&B[static_cast <size_t>(i)*m*n]);//strided matrix array input
-
-      t2 = std::chrono::high_resolution_clock::now();
-      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-      time_vect.push_back(time);
-    }
-
-    t_4 = std::chrono::high_resolution_clock::now(); 
-
-    // Memory automatically freed when vectors go out of scope
-
-    t_5 = std::chrono::high_resolution_clock::now(); 
-
-
-  } else { //FLOAT
-
-    t_1 = std::chrono::high_resolution_clock::now(); 
-
-    //assign space using std::vector for automatic memory management
-    std::vector<float> A(static_cast<size_t>(num_of_duplicate) * m * m);
-    std::vector<float> B(static_cast<size_t>(num_of_duplicate) * m * n);
-
-    std::cout << "Trying to alloc GB:" << std::endl;  
-    std::cout << (((unsigned long long)m)*m + m*n)*sizeof(float) * num_of_duplicate / 1e9 << std::endl;
-    if (A.empty() || B.empty()) {
-      std::cout << "Trying to alloc:" << std::endl;  
-      std::cout << static_cast <size_t>(num_of_duplicate)*m*m*sizeof(float) << std::endl;
-      std::cout << "Allocation error." << std::endl;  
-    }
-
-    t_2 = std::chrono::high_resolution_clock::now(); 
-
-    // fill matrices with random numbers
-    // pthread
-    // fill A (triangular)
-    pthread_t threads[NUM_THREADS];
-    int rc;
-    int i;
-    size_t stride = static_cast <size_t>(num_of_duplicate)*m*m / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = A.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'f'; // double
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*m;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }
-    // make A upper triangular
-    for (int row = 0; row < m; row++) {
-        for (int col = 0; col < row; col++) {
-            A[row*m + col] = 0.0;
-        }
-    }
-
-#ifdef DEBUG
-    // print A in matrix format
-    std::cout << "A:" << std::endl;
-    for (int row = 0; row < m; row++) {
-        for (int col = 0; col < m; col++) {
-            std::cout << A[row*m + col] << " ";
-        }
-        std::cout << std::endl;
-    }
-     
-
-    // check if A is symmetric
-    bool is_symmetric = true;
-    for (int row = 0; row < m; row++) {
-        for (int col = 0; col < row; col++) {
-            if (A[row*m + col] != A[col*m + row]) {
-                is_symmetric = false;
-                break;
-            }
-        }
-        if (!is_symmetric) break;
-    }
-    // print 
-    std::cout << "A is symmetric: " << is_symmetric << std::endl;
-#endif
-
-    // fill B
-    stride = static_cast <size_t>(num_of_duplicate)*m*n / NUM_THREADS;
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        struct t_arg *arg_ptr = (struct t_arg *)malloc(sizeof(struct t_arg));
-        arg_ptr->M = B.data();
-        arg_ptr->start = i * stride;
-        arg_ptr->type = 'f';
-        if (i == NUM_THREADS - 1) arg_ptr->end = static_cast <size_t>(num_of_duplicate)*m*n;
-        else arg_ptr->end = (i+1) * stride;
-        arg_ptr->seed = i;
-        rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
-        
-        if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
-        }
-    }
-    for( i = 0; i < NUM_THREADS; i++ ) {
-        rc = pthread_join(threads[i], NULL);
-    }    
-    
-    t_3 = std::chrono::high_resolution_clock::now(); 
-  
-
-    // this->set_num_threads(nt);
-    // Use predictor to set threads
-    Predictor predictor("xgb", "strsm");
-    int nt;
-    if (useML) {
-      // nt = get_optimum_num_cores(m,k,n);
-      nt = predictor.model->predict_num_cores(m, n, "strsm");
-      omp_set_num_threads(nt);
-    } else {
-      nt = max_num_threads;
-      omp_set_num_threads(nt);
-    }
-    // print out the number of threads
-    std::cout << "Number of threads: " << nt << std::endl;
-
-
-    for(int i=0; i < num_of_duplicate; i++){
-      t1 = std::chrono::high_resolution_clock::now(); 
-
-      lib->strsm(m,n,1.0,&A[static_cast <size_t>(i)*m*m],&B[static_cast <size_t>(i)*m*n]);//strided matrix array input
-
-      t2 = std::chrono::high_resolution_clock::now();
-      time = std::chrono::duration_cast<std::chrono::microseconds>((t2-t1)).count();
-      time_vect.push_back(time);
-    }
-
-    t_4 = std::chrono::high_resolution_clock::now(); 
-
-    // Memory automatically freed when vectors go out of scope
-
-    t_5 = std::chrono::high_resolution_clock::now(); 
-
-
-
+  if (isDouble) {
+    return run_compare_trsm_impl<double>(m, n, useML, num_of_duplicate, lib);
+  } else {
+    return run_compare_trsm_impl<float>(m, n, useML, num_of_duplicate, lib);
   }
-
-
-  time1 = std::chrono::duration_cast<std::chrono::microseconds>((t_2-t_1)).count();
-  time2 = std::chrono::duration_cast<std::chrono::microseconds>((t_3-t_2)).count();
-  time3 = std::chrono::duration_cast<std::chrono::microseconds>((t_4-t_3)).count();
-  time4 = std::chrono::duration_cast<std::chrono::microseconds>((t_5-t_4)).count();
-
-  std::cout << "time1~time4:" << std::endl; 
-  std::cout << time1 << std::endl;  
-  std::cout << time2 << std::endl;  
-  std::cout << time3 << std::endl;  
-  std::cout << time4 << std::endl;  
-  std::cout << "End: time1~time4:" << std::endl;  
-
-
-  // return average of time_vect
-  long long sum = 0;
-  for (int i = 0; i < time_vect.size(); i++) {
-    sum += time_vect[i];
-  }
-  return sum / time_vect.size();
 }
-
 
 
 long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
   
-  std::chrono::high_resolution_clock::time_point t1,t2;
-  int64_t time;
-  std::chrono::high_resolution_clock::time_point t_1,t_2,t_3,t_4,t_5;
-  int64_t time1,time2,time3,time4;
+  std::vector<long long> time_vect;//vector to store iterations' time value
+  time_vect.reserve(num_of_duplicate);
+
+  if (isDouble) {// DOUBLE
 
   std::vector<long long> time_vect;//vector to store iterations' time value
   time_vect.reserve(num_of_duplicate);
