@@ -1,6 +1,7 @@
 #include "interfaces.h"
 #include "interfaces-ml.h"
 #include "interfaces.cpp"
+#include "blas_exceptions.h"
 #include <thread>
 #include <unistd.h>
 #include <omp.h>
@@ -85,8 +86,7 @@ long long run_compare_gemm_impl(int m, int k, int n, bool useML, size_t num_of_d
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
 
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -106,8 +106,7 @@ long long run_compare_gemm_impl(int m, int k, int n, bool useML, size_t num_of_d
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
 
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -225,8 +224,7 @@ long long run_compare_symm_impl(int m, int n, bool useML, size_t num_of_duplicat
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_symmetric, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -245,8 +243,7 @@ long long run_compare_symm_impl(int m, int n, bool useML, size_t num_of_duplicat
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -350,8 +347,7 @@ long long run_compare_syrk_impl(int n, int k, bool useML, size_t num_of_duplicat
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -370,8 +366,7 @@ long long run_compare_syrk_impl(int n, int k, bool useML, size_t num_of_duplicat
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -476,8 +471,7 @@ long long run_compare_syr2k_impl(int n, int k, bool useML, size_t num_of_duplica
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -496,8 +490,7 @@ long long run_compare_syr2k_impl(int n, int k, bool useML, size_t num_of_duplica
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -516,8 +509,7 @@ long long run_compare_syr2k_impl(int n, int k, bool useML, size_t num_of_duplica
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -621,8 +613,7 @@ long long run_compare_trmm_impl(int m, int n, bool useML, size_t num_of_duplicat
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -647,8 +638,7 @@ long long run_compare_trmm_impl(int m, int n, bool useML, size_t num_of_duplicat
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -744,8 +734,7 @@ long long run_compare_trsm_impl(int m, int n, bool useML, size_t num_of_duplicat
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -770,8 +759,7 @@ long long run_compare_trsm_impl(int m, int n, bool useML, size_t num_of_duplicat
     arg_ptr->seed = i;
     rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
     if (rc) {
-      std::cout << "Error:unable to create thread," << rc << std::endl;
-      exit(-1);
+      throw blas_exceptions::ThreadCreationException(rc);
     }
   }
   for (i = 0; i < NUM_THREADS; i++) {
@@ -835,25 +823,23 @@ long long test_class_ml::run_compare_trmm_(int m, int n, bool isDouble, bool use
 }
 
 
-long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) { 
+long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
+  if (isDouble) {
+    return run_compare_trsm_impl<double>(m, n, useML, num_of_duplicate, lib);
+  } else {
+    return run_compare_trsm_impl<float>(m, n, useML, num_of_duplicate, lib);
+  }
+}
 
-    //assign space using std::vector for automatic memory management
-    std::vector<double> A(static_cast<size_t>(num_of_duplicate) * m * m);
-    std::vector<double> B(static_cast<size_t>(num_of_duplicate) * m * n);
+// Old buggy TRSM implementation removed - was calling TRMM functions instead of TRSM
+// The correct template-based implementation is now used above
 
+// std::vector<long long> test_syrk(int n, int k, int nt, bool isDouble, int num_of_duplicate);
+// std::vector<long long> test_syr2k(int n, int k, int nt, bool isDouble, int num_of_duplicate);
+// std::vector<long long> test_trmm(int m, int n, int nt, bool isDouble, int num_of_duplicate);
+// std::vector<long long> test_trsm(int m, int n, int nt, bool isDouble, int num_of_duplicate);
 
-    std::cout << "Trying to alloc GB:" << std::endl;  
-    std::cout << (((unsigned long long)m)*m + m*n)*sizeof(double) * num_of_duplicate / 1e9 << std::endl;
-    if (A.empty() || B.empty()) {
-      std::cout << "Trying to alloc:" << std::endl;  
-      std::cout << static_cast <size_t>(num_of_duplicate)*m*m*sizeof(double) << std::endl;  
-      std::cout << "Allocation error." << std::endl;  
-    }
-
-
-    t_2 = std::chrono::high_resolution_clock::now(); 
-
-    // fill matrices with random numbers
+long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
     // pthread
     // fill A (triangular)
     pthread_t threads[NUM_THREADS];
@@ -871,8 +857,7 @@ long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool use
         rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
         
         if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
+          throw blas_exceptions::ThreadCreationException(rc);
         }
     }
     for( i = 0; i < NUM_THREADS; i++ ) {
@@ -923,8 +908,7 @@ long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool use
         rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
         
         if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
+          throw blas_exceptions::ThreadCreationException(rc);
         }
     }
     for( i = 0; i < NUM_THREADS; i++ ) {
@@ -1004,8 +988,7 @@ long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool use
         rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
         
         if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
+          throw blas_exceptions::ThreadCreationException(rc);
         }
     }
     for( i = 0; i < NUM_THREADS; i++ ) {
@@ -1058,8 +1041,7 @@ long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool use
         rc = pthread_create(&threads[i], NULL, fill_with_rand, (void *)arg_ptr);
         
         if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
+          throw blas_exceptions::ThreadCreationException(rc);
         }
     }
     for( i = 0; i < NUM_THREADS; i++ ) {
@@ -1127,18 +1109,6 @@ long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool use
   return sum / time_vect.size();
 }
 
-// std::vector<long long> test_syrk(int n, int k, int nt, bool isDouble, int num_of_duplicate);
-// std::vector<long long> test_syr2k(int n, int k, int nt, bool isDouble, int num_of_duplicate);
-// std::vector<long long> test_trmm(int m, int n, int nt, bool isDouble, int num_of_duplicate);
-// std::vector<long long> test_trsm(int m, int n, int nt, bool isDouble, int num_of_duplicate);
-
-long long test_class_ml::run_compare_trsm_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
-  if (isDouble) {
-    return run_compare_trsm_impl<double>(m, n, useML, num_of_duplicate, lib);
-  } else {
-    return run_compare_trsm_impl<float>(m, n, useML, num_of_duplicate, lib);
-  }
-}
 
 
 long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool useML, size_t num_of_duplicate, test_class* lib) {
@@ -1190,7 +1160,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
 
         if (rc) {
             std::cout << "Error: unable to create thread, " << rc << std::endl;
-            exit(-1);
+            throw blas_exceptions::ThreadCreationException(rc);
         }
 
         // delete arg_ptr;
@@ -1288,7 +1258,7 @@ long long test_class_ml::run_compare_gemv_(int m, int n, bool isDouble, bool use
 
         if (rc) {
             std::cout << "Error: unable to create thread, " << rc << std::endl;
-            exit(-1);
+            throw blas_exceptions::ThreadCreationException(rc);
         }
 
         // delete arg_ptr;
@@ -1585,8 +1555,7 @@ long long test_class_ml::run_compare_trsv_(int n, bool isDouble, bool useML, siz
         rc = pthread_create(&threads[i], NULL, fill_with_triangular, (void *)arg_ptr);
 
         if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
+          throw blas_exceptions::ThreadCreationException(rc);
         }
     }
     for( i = 0; i < NUM_THREADS; i++ ) {
@@ -1693,8 +1662,7 @@ long long test_class_ml::run_compare_trsv_(int n, bool isDouble, bool useML, siz
         rc = pthread_create(&threads[i], NULL, fill_with_triangular, (void *)arg_ptr);
 
         if (rc) {
-          std::cout << "Error:unable to create thread," << rc << std::endl;
-          exit(-1);
+          throw blas_exceptions::ThreadCreationException(rc);
         }
     }
     for( i = 0; i < NUM_THREADS; i++ ) {

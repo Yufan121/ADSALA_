@@ -7,12 +7,14 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <functional>
+#include <limits>
 
 using namespace std;
 
 #include "library-manager.h"
 // #include "domain-files.h"
 #include "rapidcsv.h"
+#include "../library_frame/BLAS/include/blas_exceptions.h"
 
 // Helper function to read CSV domain values
 template<typename T>
@@ -23,8 +25,11 @@ std::vector<T> read_csv_domain(rapidcsv::Document& csv_file, int line_num, int n
     try {
       domain.push_back(csv_file.GetCell<T>(i, line_num));
     } catch (const std::out_of_range& oor) {
-      std::cerr << "RapidCSV get cell error: " << oor.what() << '\n';
-      throw;
+      throw blas_exceptions::CSVException("read", 
+        "cell (" + std::to_string(i) + ", " + std::to_string(line_num) + ") out of range: " + oor.what());
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("read", 
+        "error reading cell (" + std::to_string(i) + ", " + std::to_string(line_num) + "): " + e.what());
     }
   }
   return domain;
@@ -37,8 +42,11 @@ void write_csv_results(rapidcsv::Document& csv_file, const std::vector<long long
     try {
       csv_file.SetCell<long long>(result_column, line_num + i, results[i]);
     } catch (const std::out_of_range& oor) {
-      std::cerr << "RapidCSV set cell error: " << oor.what() << '\n';
-      throw;
+      throw blas_exceptions::CSVException("write", 
+        "cell (" + std::to_string(result_column) + ", " + std::to_string(line_num + i) + ") out of range: " + oor.what());
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("write", 
+        "error writing cell (" + std::to_string(result_column) + ", " + std::to_string(line_num + i) + "): " + e.what());
     }
   }
 }
@@ -138,15 +146,16 @@ int handle_trsm(test_class* lib, rapidcsv::Document& csv_file, const std::string
 
 
 int main(int argc, char *argv[]) {
-
+  try {
   library_manager lib_man; //library manager
 
   if (argc < 7) {
-    std::cout << "Please provide a domain file, a library and a precision" << std::endl;
-    std::cout << "Available libraries:" << std::endl;
+      std::cerr << "Usage: " << argv[0] << " <routine> <domain_file> <library> <precision> <num_threads> <line_num>" << std::endl;
+      std::cerr << "Please provide a domain file, a library and a precision" << std::endl;
+      std::cerr << "Available libraries:" << std::endl;
     for (std::string s : lib_man.library_names()) 
-      std:: cout << "\t- " << s << std::endl;
-    return -1;
+        std::cerr << "\t- " << s << std::endl;
+      return 1;
   }
 
   //parameters
@@ -154,64 +163,97 @@ int main(int argc, char *argv[]) {
   std::string domain_file_name = argv[2];
   std::string library_name = argv[3];
   std::string precision = argv[4];
-  int nt = std::atoi(argv[5]);
-  int line_num = std::atoi(argv[6]);
-
-  // parse precision
-  bool isDouble=true;
-  if (precision == "double")  isDouble = true;
-  else if (precision == "single") isDouble = false;
-  else {
-    cout << "Precision not found." << endl;
-    return -1;
-  }
-  
-  line_num -= 1; //line number starts from 0, csv might ignore heading line
-
-
-  // get lib from lib name
-  test_class* lib = dynamic_cast<test_class*>(lib_man.get_library(library_name));
-  rapidcsv::Document csv_file(domain_file_name);//read domain file
-
-
-  //routine name as a vector
-  vector<string> routine_names = {"gemm", "symm", "syrk", "syr2k", "trmm", "trsm", "gemv", "syr", "trsv", "dot", "axpy"};
-  int num_of_duplicate = 10;
-
-  // Create routine dispatcher map for Level 3 routines
-  std::unordered_map<std::string, RoutineHandler> level3_handlers = {
-    {"gemm", handle_gemm},
-    {"symm", handle_symm},
-    {"syrk", handle_syrk},
-    {"syr2k", handle_syr2k},
-    {"trmm", handle_trmm},
-    {"trsm", handle_trsm}
-  };
-
-  // Try Level 3 routine dispatcher first
-  auto handler_it = level3_handlers.find(routine_todo);
-  if (handler_it != level3_handlers.end()) {
-    try {
-      return handler_it->second(lib, csv_file, domain_file_name, line_num, isDouble, nt, num_of_duplicate);
-    } catch (const std::exception& e) {
-      std::cerr << "Error executing routine " << routine_todo << ": " << e.what() << std::endl;
-      return -1;
+    
+    // Validate and parse num_threads
+    char* endptr;
+    long nt_long = std::strtol(argv[5], &endptr, 10);
+    if (*endptr != '\0' || nt_long < 1 || nt_long > std::numeric_limits<int>::max()) {
+      throw blas_exceptions::InvalidArgumentException("num_threads", "must be a positive integer");
     }
-  }
+    int nt = static_cast<int>(nt_long);
+    
+    // Validate and parse line_num
+    long line_num_long = std::strtol(argv[6], &endptr, 10);
+    if (*endptr != '\0' || line_num_long < 1 || line_num_long > std::numeric_limits<int>::max()) {
+      throw blas_exceptions::InvalidArgumentException("line_num", "must be a positive integer");
+    }
+    int line_num = static_cast<int>(line_num_long);
 
-  // Fall back to Level 2/1 routines (keep existing if-else chain for now)
-  if (routine_todo == routine_names[6]) { /*GEMV*/ 
+    // parse precision
+    bool isDouble = true;
+    if (precision == "double") {
+      isDouble = true;
+    } else if (precision == "single") {
+      isDouble = false;
+    } else {
+      throw blas_exceptions::InvalidArgumentException("precision", "must be 'double' or 'single'");
+    }
+    
+    line_num -= 1; //line number starts from 0, csv might ignore heading line
+    if (line_num < 0) {
+      throw blas_exceptions::InvalidArgumentException("line_num", "must be >= 1");
+    }
+
+    // Validate routine name
+    vector<string> routine_names = {"gemm", "symm", "syrk", "syr2k", "trmm", "trsm", "gemv", "syr", "trsv", "dot", "axpy"};
+    bool routine_valid = false;
+    for (const auto& name : routine_names) {
+      if (routine_todo == name) {
+        routine_valid = true;
+        break;
+      }
+    }
+    if (!routine_valid) {
+      throw blas_exceptions::InvalidArgumentException("routine", "unknown routine: " + routine_todo);
+    }
+
+    // get lib from lib name
+    test_class* lib = dynamic_cast<test_class*>(lib_man.get_library(library_name));
+    if (lib == nullptr) {
+      throw blas_exceptions::InvalidArgumentException("library", "library '" + library_name + "' not found or invalid");
+    }
+
+    // Read CSV file with exception handling
+    rapidcsv::Document csv_file;
+    try {
+      csv_file = rapidcsv::Document(domain_file_name);
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("read", "failed to open file '" + domain_file_name + "': " + e.what());
+    }
+
+    int num_of_duplicate = 10;
+
+    // Create routine dispatcher map for Level 3 routines
+    std::unordered_map<std::string, RoutineHandler> level3_handlers = {
+      {"gemm", handle_gemm},
+      {"symm", handle_symm},
+      {"syrk", handle_syrk},
+      {"syr2k", handle_syr2k},
+      {"trmm", handle_trmm},
+      {"trsm", handle_trsm}
+    };
+
+    // Try Level 3 routine dispatcher first
+    auto handler_it = level3_handlers.find(routine_todo);
+    if (handler_it != level3_handlers.end()) {
+      return handler_it->second(lib, csv_file, domain_file_name, line_num, isDouble, nt, num_of_duplicate);
+    }
+
+    // Fall back to Level 2/1 routines (keep existing if-else chain for now)
+    vector<string> routine_names = {"gemm", "symm", "syrk", "syr2k", "trmm", "trsm", "gemv", "syr", "trsv", "dot", "axpy"};
+    if (routine_todo == routine_names[6]) { /*GEMV*/ 
 
 
     //get domain
-    // do not stop program if domain is not found
     int dom1, dom2; 
     try {
       dom1 = csv_file.GetCell<int>(0, line_num);
       dom2 = csv_file.GetCell<int>(1, line_num);
     } catch (const std::out_of_range& oor) {
-      std::cerr << "RapidCSV get cell error: " << oor.what() << '\n';
-      return -1;
+      throw blas_exceptions::CSVException("read", 
+        "cell (0, " + std::to_string(line_num) + ") or (1, " + std::to_string(line_num) + ") out of range: " + oor.what());
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("read", "error reading domain values: " + std::string(e.what()));
     }
 
     std::cout<< dom1 <<std::endl;
@@ -224,12 +266,18 @@ int main(int argc, char *argv[]) {
       try {
         csv_file.SetCell<long long>(nt+2-1, line_num+i, result[i]);//set each time result
       } catch (const std::out_of_range& oor) {
-        std::cerr << "RapidCSV set cell error: " << oor.what() << '\n';
-        return -1;
+        throw blas_exceptions::CSVException("write", 
+          "cell (" + std::to_string(nt+2-1) + ", " + std::to_string(line_num+i) + ") out of range: " + oor.what());
+      } catch (const std::exception& e) {
+        throw blas_exceptions::CSVException("write", "error writing result: " + std::string(e.what()));
       }
     }
     // std::cout<< result <<std::endl;
-    csv_file.Save(domain_file_name);//write file
+    try {
+      csv_file.Save(domain_file_name);//write file
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("save", "failed to save file '" + domain_file_name + "': " + e.what());
+    }
     
     return 0;
 
@@ -240,8 +288,10 @@ int main(int argc, char *argv[]) {
       try {
         dom1 = csv_file.GetCell<int>(0, line_num);
       } catch (const std::out_of_range& oor) {
-        std::cerr << "RapidCSV get cell error: " << oor.what() << '\n';
-        return -1;
+        throw blas_exceptions::CSVException("read", 
+          "cell (0, " + std::to_string(line_num) + ") out of range: " + oor.what());
+      } catch (const std::exception& e) {
+        throw blas_exceptions::CSVException("read", "error reading domain value: " + std::string(e.what()));
       }
   
       std::cout<< dom1 <<std::endl;
@@ -267,13 +317,14 @@ int main(int argc, char *argv[]) {
 
 
     //get domain
-    // do not stop program if domain is not found
     int dom1; 
     try {
       dom1 = csv_file.GetCell<int>(0, line_num);
     } catch (const std::out_of_range& oor) {
-      std::cerr << "RapidCSV get cell error: " << oor.what() << '\n';
-      return -1;
+      throw blas_exceptions::CSVException("read", 
+        "cell (0, " + std::to_string(line_num) + ") out of range: " + oor.what());
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("read", "error reading domain value: " + std::string(e.what()));
     }
 
     std::cout<< dom1 <<std::endl;
@@ -285,12 +336,18 @@ int main(int argc, char *argv[]) {
       try {
         csv_file.SetCell<long long>(nt+1-1, line_num+i, result[i]);//set each time result
       } catch (const std::out_of_range& oor) {
-        std::cerr << "RapidCSV set cell error: " << oor.what() << '\n';
-        return -1;
+        throw blas_exceptions::CSVException("write", 
+          "cell (" + std::to_string(nt+1-1) + ", " + std::to_string(line_num+i) + ") out of range: " + oor.what());
+      } catch (const std::exception& e) {
+        throw blas_exceptions::CSVException("write", "error writing result: " + std::string(e.what()));
       }
     }
     // std::cout<< result <<std::endl;
-    csv_file.Save(domain_file_name);//write file
+    try {
+      csv_file.Save(domain_file_name);//write file
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("save", "failed to save file '" + domain_file_name + "': " + e.what());
+    }
     
     return 0;
 
@@ -315,13 +372,19 @@ int main(int argc, char *argv[]) {
       try {
         csv_file.SetCell<long long>(nt+1-1, line_num+i, result[i]);//set each time result
       } catch (const std::out_of_range& oor) {
-        std::cerr << "RapidCSV set cell error: " << oor.what() << '\n';
-        return -1;
+        throw blas_exceptions::CSVException("write", 
+          "cell (" + std::to_string(nt+1-1) + ", " + std::to_string(line_num+i) + ") out of range: " + oor.what());
+      } catch (const std::exception& e) {
+        throw blas_exceptions::CSVException("write", "error writing result: " + std::string(e.what()));
       }
       std::cout<< result[i] <<std::endl;
     }
     // std::cout<< result <<std::endl;
-    csv_file.Save(domain_file_name);//write file
+    try {
+      csv_file.Save(domain_file_name);//write file
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("save", "failed to save file '" + domain_file_name + "': " + e.what());
+    }
     
     return 0;
 
@@ -346,24 +409,36 @@ int main(int argc, char *argv[]) {
       try {
         csv_file.SetCell<long long>(nt+1-1, line_num+i, result[i]);//set each time result
       } catch (const std::out_of_range& oor) {
-        std::cerr << "RapidCSV set cell error: " << oor.what() << '\n';
-        return -1;
+        throw blas_exceptions::CSVException("write", 
+          "cell (" + std::to_string(nt+1-1) + ", " + std::to_string(line_num+i) + ") out of range: " + oor.what());
+      } catch (const std::exception& e) {
+        throw blas_exceptions::CSVException("write", "error writing result: " + std::string(e.what()));
       }
       std::cout<< result[i] <<std::endl;
     }
     // std::cout<< result <<std::endl;
-    csv_file.Save(domain_file_name);//write file
+    try {
+      csv_file.Save(domain_file_name);//write file
+    } catch (const std::exception& e) {
+      throw blas_exceptions::CSVException("save", "failed to save file '" + domain_file_name + "': " + e.what());
+    }
     
     return 0;
 
   
   } else {
-    cout << "Routine name not found." << endl;
-    return -1;
+      throw blas_exceptions::InvalidArgumentException("routine", "routine '" + routine_todo + "' not implemented");
+    }
+
+  } catch (const blas_exceptions::BLASException& e) {
+    std::cerr << "BLAS Error: " << e.what() << std::endl;
+    return 1;
+  } catch (const std::exception& e) {
+    std::cerr << "Unexpected error: " << e.what() << std::endl;
+    return 1;
+  } catch (...) {
+    std::cerr << "Unknown error occurred" << std::endl;
+    return 1;
   }
-
-
-
-
 }
 
